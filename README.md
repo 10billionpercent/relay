@@ -297,10 +297,10 @@ Relay is deployed entirely on Cloudflare's infrastructure — no servers to mana
 
 ### Backend — Workers + D1
 
-The backend is deployed as a Cloudflare Worker via Wrangler. A D1 database (`relay-db`) was provisioned and its ID bound in `wrangler.toml`. The schema was applied with:
+The backend is deployed as a Cloudflare Worker via Wrangler. A D1 database (`relay`) was provisioned and its ID bound in `wrangler.toml`. The schema was applied with:
 
 ```bash
-wrangler d1 execute relay-db --remote --file=./schema.sql
+wrangler d1 execute relay --remote --file=./schema.sql
 ```
 
 Secrets (`GROQ_API_KEY`, `JWT_SECRET`) are stored as Worker secrets — never in source control. The Worker is deployed to Cloudflare's global edge network and routes all `/api/*` traffic.
