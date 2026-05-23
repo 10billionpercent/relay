@@ -62,7 +62,7 @@ export default function ChatPage(props: ChatPageProps) {
 
   return (
     <div
-      className="h-screen flex bg-[#111315] text-white"
+      className="h-dvh flex bg-[#111315] text-white"
       style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
     >
       {props.mobileSidebarOpen && (

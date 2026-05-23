@@ -141,7 +141,7 @@ export default function ChatView({
             setModelDropdownOpen={setModelDropdownOpen}
             modelDropdownRef={modelDropdownRef}
           />
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 mb-4">
             <textarea
               ref={textareaRef as React.Ref<HTMLTextAreaElement>}
               value={input}
