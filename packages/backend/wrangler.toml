@@ -7,3 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "relay"
 database_id = "fc90384a-7197-4703-ac57-4ac4cd7884a4"  
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
