@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown"; //meow
+import ReactMarkdown from "react-markdown"; 
 import {
   Menu,
   X,
@@ -794,12 +794,12 @@ function App() {
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                   <div className="text-center mt-20 text-gray-400">
-                    <MessageCircle size={48} className="mx-auto mb-4" />
+                    <img src="/relay.png" alt="Relay" className="w-40 mx-auto mb-4"/>
                     <h1 className="text-2xl font-bold text-white mb-2">
-                      AI Chat Assistant
+                      Hi, {user.username}
                     </h1>
                     <p>
-                      Start a conversation with the AI using Groq's fast
+                      Chat with AI using Groq's fast
                       inference
                     </p>
                     <p className="mt-2">
