@@ -22,6 +22,7 @@ import {
   Check,
   Pencil,
   MoreHorizontal,
+  Loader2,
 } from "lucide-react";
 
 interface Message {
@@ -111,6 +112,12 @@ function App() {
   // Rename conversation state
   const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
+
+  // Loading conversation state
+  const [loadingConversationId, setLoadingConversationId] = useState<
+    string | null
+  >(null);
+  const loadConversationAbortRef = useRef<AbortController | null>(null);
 
   const currentConversationTitle = currentConversationId
     ? conversations.find((c) => c.id === currentConversationId)?.title ||
@@ -316,18 +323,36 @@ function App() {
   const loadConversation = async (id: string) => {
     if (!token) return;
     setShowDashboard(false);
+
+    if (loadConversationAbortRef.current) {
+      loadConversationAbortRef.current.abort();
+    }
+
+    setCurrentConversationId(id);
+    setLoadingConversationId(id);
+
+    const controller = new AbortController();
+    loadConversationAbortRef.current = controller;
+
     try {
       const res = await fetch(`${API_URL}/api/conversations/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages);
-        setCurrentConversationId(id);
         localStorage.setItem(`messages_${id}`, JSON.stringify(data.messages));
       }
-    } catch (err) {
-      console.error("Failed to load conversation:", err);
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        console.error("Failed to load conversation:", err);
+      }
+    } finally {
+      if (loadConversationAbortRef.current === controller) {
+        loadConversationAbortRef.current = null;
+      }
+      setLoadingConversationId(null);
     }
   };
 
@@ -465,7 +490,7 @@ function App() {
         body: JSON.stringify({ title: newTitle.trim() }),
       });
       if (res.ok) {
-        loadConversations(); // refresh sidebar
+        loadConversations();
       }
     } catch (err) {
       console.error("Rename failed:", err);
@@ -503,7 +528,10 @@ function App() {
   if (authLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#111315]">
-        <div className="text-white text-lg animate-pulse">
+        <div
+          className="text-white text-lg animate-pulse"
+          style={{ fontFamily: "'Quicksand', sans-serif" }}
+        >
           Verifying session…
         </div>
       </div>
@@ -513,9 +541,18 @@ function App() {
   // ---- Auth screen ----
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#111315] p-4">
+      <div
+        className="min-h-screen flex items-center justify-center bg-[#111315] p-4"
+        style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: "500" }}
+      >
         <div className="bg-[#1a1d21] rounded-2xl p-6 sm:p-10 max-w-md w-full text-center shadow-lg">
           <img src="/relay.png" alt="Relay" className="w-16 mx-auto mb-4" />
+          <h1
+            className="text-white text-3xl font-bold mb-2"
+            style={{ fontFamily: "'Racing Sans One', cursive" }}
+          >
+            Relay
+          </h1>
           <h2 className="text-white text-xl font-semibold mb-6">
             {authMode === "login" ? "Welcome back" : "Create account"}
           </h2>
@@ -576,7 +613,10 @@ function App() {
 
   // Main app
   return (
-    <div className="h-screen flex bg-[#111315] text-white">
+    <div
+      className="h-screen flex bg-[#111315] text-white"
+      style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: "500" }}
+    >
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
@@ -599,7 +639,10 @@ function App() {
               className="w-8 h-8 flex-shrink-0"
             />
             {!sidebarCollapsed && (
-              <span className="text-white font-semibold text-lg whitespace-nowrap">
+              <span
+                className="text-[#00cfff] text-xl whitespace-nowrap"
+                style={{ fontFamily: "'Racing Sans One', cursive" }}
+              >
                 Relay
               </span>
             )}
@@ -642,7 +685,7 @@ function App() {
                 onClick={logout}
                 className="text-gray-400 hover:text-white flex items-center gap-1"
               >
-                <LogOut size={14} /> <span className="text-xs">Logout</span>
+                <LogOut size={14} /> <span className="text-s">Logout</span>
               </button>
             </div>
           )}
@@ -680,59 +723,64 @@ function App() {
           {conversations.map((conv) => (
             <div
               key={conv.id}
-              className={`group relative flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer mb-1 transition ${conv.id === currentConversationId ? "bg-[#2a2d33] border-l-2 border-[#00cfff]" : "hover:bg-[#24272c]"} ${sidebarCollapsed ? "justify-center px-1" : ""}`}
-            >
-              <div
-                className="flex-1 min-w-0"
-                onClick={() => {
+              onClick={() => {
+                // Only switch if not currently renaming this conversation
+                if (renamingConvId !== conv.id) {
                   loadConversation(conv.id);
                   setMobileSidebarOpen(false);
-                }}
-              >
-                {sidebarCollapsed ? (
-                  <MessageCircle size={18} className="text-gray-400" />
-                ) : renamingConvId === conv.id ? (
-                  // Rename input with tick/cross buttons
-                  <div
-                    className="flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
+                }
+              }}
+              className={`group relative flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer mb-1 transition ${conv.id === currentConversationId ? "bg-[#2a2d33] border-l-2 border-[#00cfff]" : "hover:bg-[#24272c]"} ${sidebarCollapsed ? "justify-center px-1" : ""}`}
+            >
+              {sidebarCollapsed ? (
+                <MessageCircle size={18} className="text-gray-400" />
+              ) : loadingConversationId === conv.id ? (
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Loader2
+                    size={14}
+                    className="animate-spin text-gray-400 flex-shrink-0"
+                  />
+                  <span className="text-sm truncate">{conv.title}</span>
+                </div>
+              ) : renamingConvId === conv.id ? (
+                <div
+                  className="flex items-center gap-1 flex-1 min-w-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    value={renameTitle}
+                    onChange={(e) => setRenameTitle(e.target.value)}
+                    className="bg-[#24272c] border border-[#2a2d33] text-white text-sm rounded px-1 py-0.5 flex-1 min-w-0 focus:outline-none focus:border-[#00cfff]"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        renameConversation(conv.id, renameTitle);
+                      } else if (e.key === "Escape") {
+                        setRenamingConvId(null);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => renameConversation(conv.id, renameTitle)}
+                    className="p-0.5 rounded hover:bg-[#2a2d33] text-green-400 hover:text-green-300 transition"
+                    title="Confirm rename"
                   >
-                    <input
-                      type="text"
-                      value={renameTitle}
-                      onChange={(e) => setRenameTitle(e.target.value)}
-                      className="bg-[#24272c] border border-[#2a2d33] text-white text-sm rounded px-1 py-0.5 flex-1 min-w-0 focus:outline-none focus:border-[#00cfff]"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          renameConversation(conv.id, renameTitle);
-                        } else if (e.key === "Escape") {
-                          setRenamingConvId(null);
-                        }
-                      }}
-                    />
-                    <button
-                      onClick={() => renameConversation(conv.id, renameTitle)}
-                      className="p-0.5 rounded hover:bg-[#2a2d33] text-green-400 hover:text-green-300 transition"
-                      title="Confirm rename"
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      onClick={() => setRenamingConvId(null)}
-                      className="p-0.5 rounded hover:bg-[#2a2d33] text-gray-400 hover:text-red-400 transition"
-                      title="Cancel rename"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-sm truncate block">{conv.title}</span>
-                )}
-              </div>
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => setRenamingConvId(null)}
+                    className="p-0.5 rounded hover:bg-[#2a2d33] text-gray-400 hover:text-red-400 transition"
+                    title="Cancel rename"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <span className="text-sm truncate flex-1">{conv.title}</span>
+              )}
 
-              {/* 3-dot menu button – always visible on mobile, hover on desktop */}
               {!sidebarCollapsed && renamingConvId !== conv.id && (
                 <div
                   className="relative"
@@ -760,7 +808,7 @@ function App() {
                           setRenameTitle(conv.title);
                           setMenuOpenConvId(null);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs text-[#00cfff] hover:bg-[#24272c] flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-s text-[#00cfff] hover:bg-[#24272c] flex items-center gap-2"
                       >
                         <Pencil size={14} /> Rename
                       </button>
@@ -769,7 +817,7 @@ function App() {
                           e.stopPropagation();
                           deleteConversation(conv.id);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-[#24272c] flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-s text-red-400 hover:bg-[#24272c] flex items-center gap-2"
                       >
                         <Trash2 size={14} /> Delete
                       </button>
@@ -780,14 +828,14 @@ function App() {
             </div>
           ))}
           {conversations.length === 0 && !sidebarCollapsed && (
-            <p className="text-gray-500 text-xs text-center py-4">
+            <p className="text-gray-500 text-s text-center py-4">
               No conversations yet
             </p>
           )}
         </div>
       </aside>
 
-      {/* Main content (unchanged) */}
+      {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center h-16 px-4 border-b border-[#2a2d33] bg-[#1a1d21] lg:px-6">
           <button
@@ -799,6 +847,9 @@ function App() {
           <h1 className="text-lg font-semibold truncate">
             {showDashboard ? "Analytics Dashboard" : currentConversationTitle}
           </h1>
+          {loadingConversationId && (
+            <Loader2 size={16} className="animate-spin ml-3 text-gray-400" />
+          )}
         </div>
 
         <div className="flex-1 flex flex-col min-h-0">
@@ -907,7 +958,7 @@ function App() {
                           <td className="px-4 py-2">{log.total_tokens}</td>
                           <td className="px-4 py-2">
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${log.status === "success" ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"}`}
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-s font-medium ${log.status === "success" ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"}`}
                             >
                               {log.status === "success" ? (
                                 <CheckCircle size={14} />
@@ -1038,7 +1089,7 @@ function App() {
                   <div className="relative w-48 sm:w-56" ref={modelDropdownRef}>
                     <button
                       onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-                      className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
+                      className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-s rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
                     >
                       <span className="truncate">
                         {MODEL_NAMES[selectedModel] || selectedModel}
@@ -1057,7 +1108,7 @@ function App() {
                               setSelectedModel(m.model);
                               setModelDropdownOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 text-xs hover:bg-[#24272c] transition ${m.model === selectedModel ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]" : "text-gray-300"}`}
+                            className={`w-full text-left px-3 py-2 text-s hover:bg-[#24272c] transition ${m.model === selectedModel ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]" : "text-gray-300"}`}
                             title={m.model}
                           >
                             {MODEL_NAMES[m.model] || m.model}
