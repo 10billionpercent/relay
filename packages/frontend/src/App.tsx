@@ -55,7 +55,7 @@ const MODEL_NAMES: Record<string, string> = {
   "allam-2-7b": "Mirage",
 };
 
-const API_URL = "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 function App() {
   // Auth state

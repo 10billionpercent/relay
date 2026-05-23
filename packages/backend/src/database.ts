@@ -1,8 +1,13 @@
-import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
+import initSqlJs, {
+  Database as SqlJsDatabase,
+  Statement as SqlJsStatement,
+  SqlValue,
+} from "sql.js";
 import fs from "fs";
 import path from "path";
+import { IDatabaseWrapper, IStatementWrapper } from "./db-interface";
 
-export class DatabaseWrapper {
+export class DatabaseWrapper implements IDatabaseWrapper {
   private db: SqlJsDatabase;
   private dbPath: string;
 
@@ -15,13 +20,12 @@ export class DatabaseWrapper {
     return new StatementWrapper(this.db, sql, () => this.save());
   }
 
-  exec(sql: string) {
-    const results = this.db.exec(sql);
+  async exec(sql: string) {
+    this.db.exec(sql);
     this.save();
-    return results;
   }
 
-  transaction<T extends any[]>(
+  transaction<T extends unknown[]>(
     fn: (db: DatabaseWrapper, ...args: T) => void,
   ): (...args: T) => void {
     return (...args: T) => {
@@ -42,8 +46,8 @@ export class DatabaseWrapper {
   }
 }
 
-class StatementWrapper {
-  private stmt: any;
+class StatementWrapper implements IStatementWrapper {
+  private stmt: SqlJsStatement;
   private db: SqlJsDatabase;
   private onRun: () => void;
 
@@ -53,37 +57,42 @@ class StatementWrapper {
     this.onRun = onRun;
   }
 
-  private bindParams(params?: any[]) {
+  private bindParams(params?: unknown[]) {
     if (params && params.length > 0) {
       if (params.length === 1 && Array.isArray(params[0])) {
-        this.stmt.bind(params[0]);
+        this.stmt.bind(params[0] as SqlValue[]);
       } else {
-        this.stmt.bind(params);
+        this.stmt.bind(params as SqlValue[]);
       }
     }
   }
 
-  all(...params: any[]): any[] {
+  async all(...params: unknown[]): Promise<Record<string, unknown>[]> {
     this.bindParams(params);
-    const rows: any[] = [];
+    const rows: Record<string, unknown>[] = [];
     while (this.stmt.step()) {
-      rows.push(this.stmt.getAsObject());
+      rows.push(this.stmt.getAsObject() as Record<string, unknown>);
     }
     this.stmt.reset();
     return rows;
   }
 
-  get(...params: any[]): any | undefined {
+  async get(
+    ...params: unknown[]
+  ): Promise<Record<string, unknown> | undefined> {
     this.bindParams(params);
-    let row: any = undefined;
     if (this.stmt.step()) {
-      row = this.stmt.getAsObject();
+      const row = this.stmt.getAsObject() as Record<string, unknown>;
+      this.stmt.reset();
+      return row;
     }
     this.stmt.reset();
-    return row;
+    return undefined;
   }
 
-  run(...params: any[]): { changes: number; lastInsertRowid: number | bigint } {
+  async run(
+    ...params: unknown[]
+  ): Promise<{ changes: number; lastInsertRowid: number | bigint }> {
     this.bindParams(params);
     while (this.stmt.step()) {}
     this.stmt.reset();
@@ -123,8 +132,7 @@ export async function initializeDatabase(
 
   const wrapper = new DatabaseWrapper(sqlDb, DB_PATH);
 
-  // Create tables (if not exist)
-  wrapper.exec(`
+  await wrapper.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -132,7 +140,6 @@ export async function initializeDatabase(
       token TEXT,
       created_at INTEGER NOT NULL
     );
-
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -142,7 +149,6 @@ export async function initializeDatabase(
       user_id TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
-
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
@@ -152,7 +158,6 @@ export async function initializeDatabase(
       timestamp INTEGER NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
-
     CREATE TABLE IF NOT EXISTS inference_logs (
       id TEXT PRIMARY KEY,
       message_id TEXT,
@@ -170,7 +175,6 @@ export async function initializeDatabase(
       timestamp INTEGER NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
-
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_logs_conversation ON inference_logs(conversation_id, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON inference_logs(timestamp DESC);
@@ -178,15 +182,14 @@ export async function initializeDatabase(
     CREATE INDEX IF NOT EXISTS idx_logs_status ON inference_logs(status, timestamp DESC);
   `);
 
-  // Migrations: add missing columns if they don't exist (safe to run multiple times)
   try {
-    wrapper.exec(
+    await wrapper.exec(
       `ALTER TABLE conversations ADD COLUMN user_id TEXT REFERENCES users(id);`,
     );
   } catch (e) {}
 
   try {
-    wrapper.exec(`ALTER TABLE messages ADD COLUMN summary TEXT;`);
+    await wrapper.exec(`ALTER TABLE messages ADD COLUMN summary TEXT;`);
   } catch (e) {}
 
   return wrapper;

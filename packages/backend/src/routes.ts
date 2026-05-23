@@ -12,17 +12,17 @@ import type {
   User,
   AuthResponse,
 } from "@relay/shared";
-import { DatabaseWrapper } from "./database.js";
+import type { IDatabaseWrapper } from "./db-interface";
 import crypto from "crypto";
 
 declare module "hono" {
   interface ContextVariableMap {
     user: User;
-    db: DatabaseWrapper;
+    db: IDatabaseWrapper;
   }
 }
 
-// Password helpers
+// Password helpers (unchanged)
 function hashPassword(
   password: string,
   salt?: string,
@@ -62,10 +62,10 @@ async function authMiddleware(c: any, next: any) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   const token = authHeader.split(" ")[1];
-  const user = c
+  const user = (await c
     .get("db")
     .prepare("SELECT * FROM users WHERE token = ?")
-    .get(token) as User | undefined;
+    .get(token)) as User | undefined;
   if (!user) {
     return c.json({ error: "Invalid token" }, 401);
   }
@@ -74,21 +74,59 @@ async function authMiddleware(c: any, next: any) {
 }
 
 // Helper to map snake_case DB rows to camelCase Message objects
-function mapMessage(row: any): Message {
+function mapMessage(row: Record<string, unknown>): Message {
   return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    role: row.role,
-    content: row.content,
-    summary: row.summary,
-    timestamp: row.timestamp,
+    id: row.id as string,
+    conversationId: row.conversation_id as string,
+    role: row.role as "user" | "assistant" | "system",
+    content: row.content as string,
+    summary: row.summary as string | undefined,
+    timestamp: row.timestamp as number,
   };
 }
 
-export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
+// Auto-generate a conversation title (unchanged)
+async function generateConversationTitle(
+  userMessage: string,
+  assistantMessage: string,
+  llmClient: LoggedLLMClient,
+): Promise<string> {
+  try {
+    const messages: Message[] = [
+      {
+        id: uuidv4(),
+        conversationId: "title-gen",
+        role: "system",
+        content:
+          "Write a very short, natural title for this conversation (maximum 3 words). Examples: 'Morning Chat', 'Anime Talk', 'Cooking Tips'. Do NOT include the word 'title' or any explanation. Output ONLY the title, no punctuation.",
+        timestamp: Date.now(),
+      },
+      {
+        id: uuidv4(),
+        conversationId: "title-gen",
+        role: "user",
+        content: `User: ${userMessage}\nAssistant: ${assistantMessage}`,
+        timestamp: Date.now(),
+      },
+    ];
+    const { message } = await llmClient.chat(messages, "llama-3.1-8b-instant");
+    let title = message.content.trim();
+    title = title.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()'"“”‘’]/g, "");
+    title = title.replace(/\s{2,}/g, " ").trim();
+    const words = title.split(/\s+/);
+    title = words.slice(0, 3).join(" ");
+    return (
+      title || userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ")
+    );
+  } catch (e) {
+    console.error("Title generation failed, using fallback:", e);
+    return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
+  }
+}
+
+export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
   const app = new Hono();
 
-  // Inject db into context
   app.use("*", async (c, next) => {
     c.set("db", db);
     await next();
@@ -108,11 +146,11 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   );
 
   // Health check
-  app.get("/api/health", (c) => {
-    return c.json({ status: "ok", timestamp: Date.now() });
-  });
+  app.get("/api/health", (c) =>
+    c.json({ status: "ok", timestamp: Date.now() }),
+  );
 
-  // Get available models (public)
+  // Get available models
   app.get("/api/models", (c) => {
     const models = llmClient.getAvailableModels();
     return c.json(models);
@@ -124,7 +162,7 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       const body = await c.req.json();
       const { username, password } = signupSchema.parse(body);
 
-      const existing = db
+      const existing = await db
         .prepare("SELECT id FROM users WHERE username = ?")
         .get(username);
       if (existing) {
@@ -143,19 +181,16 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       const token = uuidv4();
       const createdAt = Date.now();
 
-      db.prepare(
-        "INSERT INTO users (id, username, password_hash, token, created_at) VALUES (?, ?, ?, ?, ?)",
-      ).run(id, username, storedHash, token, createdAt);
+      await db
+        .prepare(
+          "INSERT INTO users (id, username, password_hash, token, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(id, username, storedHash, token, createdAt);
 
-      const response: AuthResponse = {
-        token,
-        user: { id, username },
-      };
-      return c.json(response, 201);
+      return c.json({ token, user: { id, username } } as AuthResponse, 201);
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof z.ZodError)
         return c.json({ error: "Invalid input", details: error.errors }, 400);
-      }
       console.error("Signup error:", error);
       return c.json({ error: "Signup failed" }, 500);
     }
@@ -166,11 +201,10 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       const body = await c.req.json();
       const { username, password } = loginSchema.parse(body);
 
-      const user = db
+      const user = (await db
         .prepare("SELECT * FROM users WHERE username = ?")
-        .get(username) as User | undefined;
-
-      if (!user) {
+        .get(username)) as User | undefined;
+      if (!user)
         return c.json(
           {
             error: "No account found. Please sign up first.",
@@ -178,108 +212,40 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
           },
           404,
         );
-      }
 
       const [salt, hash] = user.password_hash.split(":");
-      if (!verifyPassword(password, salt, hash)) {
+      if (!verifyPassword(password, salt, hash))
         return c.json({ error: "Incorrect password." }, 401);
-      }
 
-      // Generate new token
       const token = uuidv4();
-      db.prepare("UPDATE users SET token = ? WHERE id = ?").run(token, user.id);
+      await db
+        .prepare("UPDATE users SET token = ? WHERE id = ?")
+        .run(token, user.id);
 
-      const response: AuthResponse = {
+      return c.json({
         token,
         user: { id: user.id, username: user.username },
-      };
-      return c.json(response);
+      } as AuthResponse);
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof z.ZodError)
         return c.json({ error: "Invalid input", details: error.errors }, 400);
-      }
       console.error("Login error:", error);
       return c.json({ error: "Login failed" }, 500);
     }
   });
 
-  // Get current user
   app.get("/api/auth/me", authMiddleware, (c) => {
     const user = c.get("user") as User;
     return c.json({ id: user.id, username: user.username });
   });
 
-  // ----- Protected routes -----
+  // Protected routes
   app.use("/api/chat", authMiddleware);
   app.use("/api/conversations/*", authMiddleware);
   app.use("/api/ingest/*", authMiddleware);
   app.use("/api/stats", authMiddleware);
 
-  // Auto-generate a conversation title
-  async function generateConversationTitle(
-    userMessage: string,
-    assistantMessage: string,
-  ): Promise<string> {
-    try {
-      const messages: Message[] = [
-        {
-          id: uuidv4(),
-          conversationId: "title-gen",
-          role: "system",
-          content:
-            'You are a title generator. Read the user\'s first message and the assistant\'s response. Produce a SHORT title (max 3 words) that captures the topic. Do NOT use the word "title". Do NOT use any punctuation or quotes. Examples: "Morning Greeting", "Anime Discussion", "Cooking Tips". Output ONLY the title.',
-          timestamp: Date.now(),
-        },
-        {
-          id: uuidv4(),
-          conversationId: "title-gen",
-          role: "user",
-          content: `User: ${userMessage}\nAssistant: ${assistantMessage}`,
-          timestamp: Date.now(),
-        },
-      ];
-
-      const { message } = await llmClient.chat(
-        messages,
-        "llama-3.1-8b-instant",
-      );
-
-      let raw = message.content.trim();
-      console.log("[Title] Raw LLM response:", raw);
-
-      // Remove markdown code fences, backticks, and common formatting
-      raw = raw
-        .replace(/^```[a-z]*\n?|```$/gi, "")
-        .replace(/`/g, "")
-        .replace(/["'“”‘’]/g, "")
-        .replace(/[.,\/#!$%\^&\*;:{}=_~()\-]/g, " ")
-        .replace(/\s{2,}/g, " ")
-        .trim();
-
-      // Take first 3 words
-      const words = raw.split(/\s+/);
-      const title = words.slice(0, 3).join(" ");
-
-      // If everything is empty, use fallback
-      if (!title) {
-        console.warn("[Title] Cleaned title empty, using fallback.");
-        return (
-          userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") ||
-          "Chat"
-        );
-      }
-
-      console.log("[Title] Final title:", title);
-      return title;
-    } catch (e) {
-      console.error("Title generation failed, using fallback:", e);
-      return (
-        userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") || "Chat"
-      );
-    }
-  }
-
-  // Chat endpoint
+  // Chat endpoint (fully awaited)
   app.post("/api/chat", async (c) => {
     try {
       const user = c.get("user") as User;
@@ -289,17 +255,16 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       let conversation: Conversation;
 
       if (validated.conversationId) {
-        const existing = db
+        const existing = (await db
           .prepare(
             "SELECT * FROM conversations WHERE id = ? AND status = ? AND user_id = ?",
           )
-          .get(validated.conversationId, "active", user.id) as
+          .get(validated.conversationId, "active", user.id)) as
           | Conversation
           | undefined;
 
-        if (!existing) {
+        if (!existing)
           return c.json({ error: "Conversation not found or archived" }, 404);
-        }
         conversation = existing;
       } else {
         const id = uuidv4();
@@ -312,20 +277,22 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
           userId: user.id,
         };
 
-        db.prepare(
-          "INSERT INTO conversations (id, title, created_at, updated_at, status, user_id) VALUES (?, ?, ?, ?, ?, ?)",
-        ).run(
-          conversation.id,
-          conversation.title,
-          conversation.createdAt,
-          conversation.updatedAt,
-          conversation.status,
-          conversation.userId,
-        );
+        await db
+          .prepare(
+            "INSERT INTO conversations (id, title, created_at, updated_at, status, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            conversation.id,
+            conversation.title,
+            conversation.createdAt,
+            conversation.updatedAt,
+            conversation.status,
+            conversation.userId,
+          );
       }
 
-      // Get conversation history and map to camelCase
-      const historyRows = db
+      // Get history
+      const historyRows = await db
         .prepare(
           "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
         )
@@ -341,15 +308,17 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         timestamp: Date.now(),
       };
 
-      db.prepare(
-        "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-      ).run(
-        userMessage.id,
-        userMessage.conversationId,
-        userMessage.role,
-        userMessage.content,
-        userMessage.timestamp,
-      );
+      await db
+        .prepare(
+          "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(
+          userMessage.id,
+          userMessage.conversationId,
+          userMessage.role,
+          userMessage.content,
+          userMessage.timestamp,
+        );
 
       // Get LLM response
       const allMessages = [...history, userMessage];
@@ -358,7 +327,6 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         validated.model,
       );
 
-      // Include model in the assistant message
       const assistantMsgWithModel: Message = {
         ...assistantMessage,
         model: validated.model,
@@ -370,80 +338,79 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       }
 
       // Store assistant message
-      db.prepare(
-        "INSERT INTO messages (id, conversation_id, role, content, summary, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(
-        assistantMsgWithModel.id,
-        assistantMsgWithModel.conversationId,
-        assistantMsgWithModel.role,
-        assistantMsgWithModel.content,
-        assistantMsgWithModel.summary || null,
-        assistantMsgWithModel.timestamp,
-      );
+      await db
+        .prepare(
+          "INSERT INTO messages (id, conversation_id, role, content, summary, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          assistantMsgWithModel.id,
+          assistantMsgWithModel.conversationId,
+          assistantMsgWithModel.role,
+          assistantMsgWithModel.content,
+          assistantMsgWithModel.summary || null,
+          assistantMsgWithModel.timestamp,
+        );
 
       // Store inference log
-      db.prepare(
-        `
+      await db
+        .prepare(
+          `
         INSERT INTO inference_logs (
           id, message_id, conversation_id, model, provider,
           latency_ms, prompt_tokens, completion_tokens, total_tokens,
           status, error, input_preview, output_preview, timestamp
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      ).run(
-        log.id,
-        log.messageId,
-        log.conversationId,
-        log.model,
-        log.provider,
-        log.latencyMs,
-        log.tokenUsage.prompt,
-        log.tokenUsage.completion,
-        log.tokenUsage.total,
-        log.status,
-        log.error || null,
-        log.inputPreview,
-        log.outputPreview,
-        log.timestamp,
-      );
+        )
+        .run(
+          log.id,
+          log.messageId,
+          log.conversationId,
+          log.model,
+          log.provider,
+          log.latencyMs,
+          log.tokenUsage.prompt,
+          log.tokenUsage.completion,
+          log.tokenUsage.total,
+          log.status,
+          log.error || null,
+          log.inputPreview,
+          log.outputPreview,
+          log.timestamp,
+        );
 
       // Update conversation timestamp
-      db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(
-        Date.now(),
-        conversation.id,
-      );
+      await db
+        .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+        .run(Date.now(), conversation.id);
 
-      // ---- Title generation (now awaited for new conversations) ----
+      // Title generation for new conversations
       if (!validated.conversationId) {
         try {
-          console.log("[Title] Generating title for new conversation...");
+          console.log("[Title] Generating title...");
           const title = await generateConversationTitle(
             validated.message,
             assistantMsgWithModel.content,
+            llmClient,
           );
-          db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(
-            title,
-            conversation.id,
-          );
-          conversation.title = title; // update the response object as well
-          console.log(`[Title] Conversation title set to: "${title}"`);
+          await db
+            .prepare("UPDATE conversations SET title = ? WHERE id = ?")
+            .run(title, conversation.id);
+          conversation.title = title;
         } catch (err) {
           console.error("Failed to update title:", err);
         }
       }
 
-      const response: ChatResponse = {
+      return c.json({
         message: assistantMsgWithModel,
         conversation,
         log,
-      };
-
-      return c.json(response);
+      } as ChatResponse);
     } catch (error) {
       console.error("Chat error:", error);
-      if (error instanceof z.ZodError) {
+      if (error instanceof z.ZodError)
         return c.json({ error: "Invalid request", details: error.errors }, 400);
-      }
       return c.json(
         {
           error:
@@ -455,82 +422,77 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   });
 
   // Get all conversations for user
-  app.get("/api/conversations", (c) => {
+  app.get("/api/conversations", async (c) => {
     const user = c.get("user") as User;
-    const conversations = db
+    const conversations = (await db
       .prepare(
         "SELECT * FROM conversations WHERE status = ? AND user_id = ? ORDER BY updated_at DESC",
       )
-      .all("active", user.id) as Conversation[];
+      .all("active", user.id)) as unknown as Conversation[];
     return c.json(conversations);
   });
 
-  // Get single conversation with messages (ensure ownership)
-  app.get("/api/conversations/:id", (c) => {
+  // Get single conversation with messages
+  app.get("/api/conversations/:id", async (c) => {
     const user = c.get("user") as User;
     const id = c.req.param("id");
 
-    const conversation = db
+    const conversation = (await db
       .prepare("SELECT * FROM conversations WHERE id = ? AND user_id = ?")
-      .get(id, user.id) as Conversation | undefined;
+      .get(id, user.id)) as Conversation | undefined;
 
-    if (!conversation) {
-      return c.json({ error: "Conversation not found" }, 404);
-    }
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
 
-    const messageRows = db
+    const messageRows = await db
       .prepare(
         "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
       )
       .all(id);
     const messages: Message[] = messageRows.map(mapMessage);
 
-    const logs = db
+    const logs = (await db
       .prepare(
         "SELECT * FROM inference_logs WHERE conversation_id = ? ORDER BY timestamp DESC",
       )
-      .all(id) as InferenceLog[];
+      .all(id)) as unknown as InferenceLog[];
 
     return c.json({ conversation, messages, logs });
   });
 
-  // Delete conversation (soft delete) – check ownership
-  app.delete("/api/conversations/:id", (c) => {
+  // Delete conversation (soft delete)
+  app.delete("/api/conversations/:id", async (c) => {
     const user = c.get("user") as User;
     const id = c.req.param("id");
 
-    const exists = db
+    const exists = await db
       .prepare(
         "SELECT id FROM conversations WHERE id = ? AND user_id = ? AND status = 'active'",
       )
       .get(id, user.id);
-    if (!exists) {
-      return c.json({ error: "Conversation not found" }, 404);
-    }
+    if (!exists) return c.json({ error: "Conversation not found" }, 404);
 
-    db.prepare("UPDATE conversations SET status = 'archived' WHERE id = ?").run(
-      id,
-    );
+    await db
+      .prepare("UPDATE conversations SET status = 'archived' WHERE id = ?")
+      .run(id);
     return c.json({ success: true });
   });
 
-  // Resume conversation (unarchive) – check ownership
-  app.post("/api/conversations/:id/resume", (c) => {
+  // Resume conversation
+  app.post("/api/conversations/:id/resume", async (c) => {
     const user = c.get("user") as User;
     const id = c.req.param("id");
 
-    const exists = db
+    const exists = await db
       .prepare(
         "SELECT id FROM conversations WHERE id = ? AND user_id = ? AND status = 'archived'",
       )
       .get(id, user.id);
-    if (!exists) {
+    if (!exists)
       return c.json({ error: "Conversation not found or already active" }, 404);
-    }
 
-    db.prepare("UPDATE conversations SET status = 'active' WHERE id = ?").run(
-      id,
-    );
+    await db
+      .prepare("UPDATE conversations SET status = 'active' WHERE id = ?")
+      .run(id);
     return c.json({ success: true });
   });
 
@@ -538,7 +500,6 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   app.post("/api/ingest/batch", async (c) => {
     try {
       const body = (await c.req.json()) as LogBatchRequest;
-
       if (!body.logs || !Array.isArray(body.logs)) {
         return c.json({ error: "Invalid payload: logs array required" }, 400);
       }
@@ -591,73 +552,44 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   });
 
   // Dashboard stats (per‑user)
-  app.get("/api/stats", (c) => {
+  app.get("/api/stats", async (c) => {
     try {
       const user = c.get("user") as User;
 
       const stats = {
-        totalConversations: db
+        totalConversations: await db
           .prepare(
             "SELECT COUNT(*) as count FROM conversations WHERE status = ? AND user_id = ?",
           )
           .get("active", user.id),
-        totalMessages: db
+        totalMessages: await db
           .prepare(
-            `SELECT COUNT(*) as count 
-           FROM messages m 
-           INNER JOIN conversations c ON m.conversation_id = c.id 
-           WHERE c.user_id = ?`,
+            `SELECT COUNT(*) as count FROM messages m INNER JOIN conversations c ON m.conversation_id = c.id WHERE c.user_id = ?`,
           )
           .get(user.id),
-        avgLatency: db
+        avgLatency: await db
           .prepare(
-            `SELECT AVG(il.latency_ms) as avg 
-           FROM inference_logs il 
-           INNER JOIN conversations c ON il.conversation_id = c.id 
-           WHERE c.user_id = ? AND il.status = 'success'`,
+            `SELECT AVG(il.latency_ms) as avg FROM inference_logs il INNER JOIN conversations c ON il.conversation_id = c.id WHERE c.user_id = ? AND il.status = 'success'`,
           )
           .get(user.id),
-        errorRate: db
+        errorRate: await db
           .prepare(
-            `SELECT ROUND(
-             COUNT(CASE WHEN il.status = 'error' THEN 1 END) * 100.0 / 
-             NULLIF(COUNT(*), 0), 
-             2
-           ) as rate 
-           FROM inference_logs il 
-           INNER JOIN conversations c ON il.conversation_id = c.id 
-           WHERE c.user_id = ?`,
+            `SELECT ROUND(COUNT(CASE WHEN il.status = 'error' THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as rate FROM inference_logs il INNER JOIN conversations c ON il.conversation_id = c.id WHERE c.user_id = ?`,
           )
           .get(user.id),
-        tokenUsage: db
+        tokenUsage: await db
           .prepare(
-            `SELECT 
-             COALESCE(SUM(il.prompt_tokens), 0) as total_prompt,
-             COALESCE(SUM(il.completion_tokens), 0) as total_completion,
-             COALESCE(SUM(il.total_tokens), 0) as total_tokens
-           FROM inference_logs il 
-           INNER JOIN conversations c ON il.conversation_id = c.id 
-           WHERE c.user_id = ? AND il.status = 'success'`,
+            `SELECT COALESCE(SUM(il.prompt_tokens), 0) as total_prompt, COALESCE(SUM(il.completion_tokens), 0) as total_completion, COALESCE(SUM(il.total_tokens), 0) as total_tokens FROM inference_logs il INNER JOIN conversations c ON il.conversation_id = c.id WHERE c.user_id = ? AND il.status = 'success'`,
           )
           .get(user.id),
-        modelDistribution: db
+        modelDistribution: await db
           .prepare(
-            `SELECT il.model, COUNT(*) as count 
-           FROM inference_logs il 
-           INNER JOIN conversations c ON il.conversation_id = c.id 
-           WHERE c.user_id = ? 
-           GROUP BY il.model 
-           ORDER BY count DESC`,
+            `SELECT il.model, COUNT(*) as count FROM inference_logs il INNER JOIN conversations c ON il.conversation_id = c.id WHERE c.user_id = ? GROUP BY il.model ORDER BY count DESC`,
           )
           .all(user.id),
-        recentLogs: db
+        recentLogs: await db
           .prepare(
-            `SELECT il.* 
-           FROM inference_logs il 
-           INNER JOIN conversations c ON il.conversation_id = c.id 
-           WHERE c.user_id = ? 
-           ORDER BY il.timestamp DESC 
-           LIMIT 50`,
+            `SELECT il.* FROM inference_logs il INNER JOIN conversations c ON il.conversation_id = c.id WHERE c.user_id = ? ORDER BY il.timestamp DESC LIMIT 50`,
           )
           .all(user.id),
       };

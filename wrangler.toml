@@ -1,0 +1,9 @@
+name = "relay-backend"
+main = "packages/backend/src/worker.ts"
+compatibility_date = "2024-11-22"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "relay"
+database_id = "fc90384a-7197-4703-ac57-4ac4cd7884a4"  
