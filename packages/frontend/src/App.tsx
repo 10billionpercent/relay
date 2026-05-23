@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Square,
+  ChevronDown,
 } from "lucide-react";
 
 interface Message {
@@ -42,6 +43,18 @@ interface UserData {
   username: string;
 }
 
+const MODEL_NAMES: Record<string, string> = {
+  "llama-3.1-8b-instant": "Flash",
+  "llama-3.3-70b-versatile": "Vector",
+  "qwen/qwen3-32b": "Cipher",
+  "groq/compound-mini": "Pulse Mini",
+  "groq/compound": "Pulse Max",
+  "openai/gpt-oss-20b": "Nova Core",
+  "openai/gpt-oss-120b": "Nova Prime",
+  "meta-llama/llama-4-scout-17b-16e-instruct": "Scout",
+  "allam-2-7b": "Mirage",
+};
+
 const API_URL = "http://localhost:3001";
 
 function App() {
@@ -55,7 +68,7 @@ function App() {
   const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
-  const [serverDown, setServerDown] = useState(false); // NEW: warn if backend unreachable
+  const [serverDown, setServerDown] = useState(false);
 
   // App state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -70,6 +83,9 @@ function App() {
   const [stats, setStats] = useState<any>(null);
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState("llama-3.1-8b-instant");
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -82,7 +98,21 @@ function App() {
       "Untitled"
     : "New Conversation";
 
-  // Persist messages in localStorage whenever they change
+  // Close model dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(e.target as Node)
+      ) {
+        setModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Persist messages in localStorage
   useEffect(() => {
     if (currentConversationId && messages.length > 0) {
       localStorage.setItem(
@@ -92,7 +122,7 @@ function App() {
     }
   }, [messages, currentConversationId]);
 
-  // Verify token on mount with intelligent error handling
+  // Verify token on mount with timeout
   useEffect(() => {
     if (!token) {
       setAuthLoading(false);
@@ -111,7 +141,6 @@ function App() {
         });
         if (didCancel) return;
 
-        // Only treat 401 as invalid token – keep user logged in for other errors
         if (res.status === 401) {
           localStorage.removeItem("token");
           setToken(null);
@@ -122,14 +151,12 @@ function App() {
           setUser({ id: data.id, username: data.username });
           setServerDown(false);
         } else {
-          // Unexpected status – stay logged in but warn
           setServerDown(true);
         }
       } catch (err: any) {
         if (err.name === "AbortError") {
           console.warn("Auth check timed out");
         }
-        // Network error – keep token, show warning
         setServerDown(true);
       } finally {
         if (!didCancel) {
@@ -155,7 +182,6 @@ function App() {
 
     const savedId = localStorage.getItem("currentConversationId");
     if (savedId) {
-      // Show cached messages instantly
       const savedMessages = localStorage.getItem(`messages_${savedId}`);
       if (savedMessages) {
         try {
@@ -163,7 +189,7 @@ function App() {
         } catch {}
       }
       setCurrentConversationId(savedId);
-      loadConversation(savedId); // fetch fresh data
+      loadConversation(savedId);
     }
   }, [user]);
 
@@ -671,8 +697,11 @@ function App() {
                 <div className="space-y-2">
                   {stats.modelDistribution?.map((item: any) => (
                     <div key={item.model} className="flex items-center gap-3">
-                      <span className="w-32 sm:w-40 text-sm text-gray-300 truncate">
-                        {item.model}
+                      <span
+                        className="w-32 sm:w-40 text-sm text-gray-300 truncate"
+                        title={item.model}
+                      >
+                        {MODEL_NAMES[item.model] || item.model}
                       </span>
                       <div className="flex-1 bg-[#24272c] rounded-full h-2">
                         <div
@@ -710,7 +739,9 @@ function App() {
                           <td className="px-4 py-2 whitespace-nowrap">
                             {new Date(log.timestamp).toLocaleTimeString()}
                           </td>
-                          <td className="px-4 py-2">{log.model}</td>
+                          <td className="px-4 py-2" title={log.model}>
+                            {MODEL_NAMES[log.model] || log.model}
+                          </td>
                           <td className="px-4 py-2">{log.latency_ms}ms</td>
                           <td className="px-4 py-2">{log.total_tokens}</td>
                           <td className="px-4 py-2">
@@ -748,6 +779,12 @@ function App() {
                     <p>
                       Start a conversation with the AI using Groq's fast
                       inference
+                    </p>
+                    <p className="mt-2">
+                      Current model:{" "}
+                      <strong className="text-[#00cfff]" title={selectedModel}>
+                        {MODEL_NAMES[selectedModel] || selectedModel}
+                      </strong>
                     </p>
                   </div>
                 )}
@@ -802,25 +839,55 @@ function App() {
                 </div>
               )}
 
+              {/* Input area with CUSTOM MODEL DROPDOWN */}
               <div className="p-3 sm:p-4 border-t border-[#2a2d33] bg-[#1a1d21]">
                 <div className="flex flex-col gap-2">
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-48 sm:w-56 bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
-                  >
-                    {models.map((m) => (
-                      <option key={m.model} value={m.model}>
-                        {m.model}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Custom Model Selector */}
+                  <div className="relative w-48 sm:w-56" ref={modelDropdownRef}>
+                    <button
+                      onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                      className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
+                    >
+                      <span className="truncate">
+                        {MODEL_NAMES[selectedModel] || selectedModel}
+                      </span>
+                      <ChevronDown
+                        size={12}
+                        className={`ml-2 transition-transform ${
+                          modelDropdownOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                    {modelDropdownOpen && (
+                      <div className="absolute z-50 bottom-full mb-1 w-full bg-[#1a1d21] border border-[#2a2d33] rounded-lg shadow-lg overflow-hidden">
+                        {models.map((m) => (
+                          <button
+                            key={m.model}
+                            onClick={() => {
+                              setSelectedModel(m.model);
+                              setModelDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-[#24272c] transition ${
+                              m.model === selectedModel
+                                ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]"
+                                : "text-gray-300"
+                            }`}
+                            title={m.model}
+                          >
+                            {MODEL_NAMES[m.model] || m.model}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Textarea + send/stop row */}
                   <div className="flex items-end gap-2">
                     <textarea
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Type your message..."
+                      placeholder={`Message ${MODEL_NAMES[selectedModel] || selectedModel}`}
                       rows={2}
                       disabled={loading}
                       className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
