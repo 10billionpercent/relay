@@ -150,7 +150,7 @@ export default function ChatView({
               placeholder={`Message ${MODEL_NAMES[selectedModel] || selectedModel}`}
               rows={1}
               disabled={loading}
-              className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
+              className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-s"
               style={{ minHeight: "44px", maxHeight: "224px" }}
             />
             {loading ? (

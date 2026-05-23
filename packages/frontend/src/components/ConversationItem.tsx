@@ -73,7 +73,7 @@ export default function ConversationItem({
             type="text"
             value={renameTitle}
             onChange={(e) => setRenameTitle(e.target.value)}
-            className="bg-[#24272c] border border-[#2a2d33] text-white text-sm rounded px-1 py-0.5 flex-1 min-w-0 focus:outline-none focus:border-[#00cfff]"
+            className="bg-[#24272c] border border-[#2a2d33] text-white text-sm rounded p-2 flex-1 min-w-0 focus:outline-none focus:border-[#00cfff]"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -89,18 +89,18 @@ export default function ConversationItem({
             className="p-0.5 rounded hover:bg-[#2a2d33] text-green-400 hover:text-green-300 transition"
             title="Confirm rename"
           >
-            <Check size={14} />
+            <Check size={16} />
           </button>
           <button
             onClick={onSelect}
             className="p-0.5 rounded hover:bg-[#2a2d33] text-gray-400 hover:text-red-400 transition"
             title="Cancel rename"
           >
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
       ) : (
-        <span className="text-sm truncate flex-1">{conv.title}</span>
+        <span className="text-s truncate flex-1">{conv.title}</span>
       )}
 
       {!sidebarCollapsed && !isRenaming && (
@@ -126,7 +126,7 @@ export default function ConversationItem({
                   e.stopPropagation();
                   onStartRename();
                 }}
-                className="w-full text-left px-3 py-2 text-xs text-[#00cfff] hover:bg-[#24272c] flex items-center gap-2"
+                className="w-full text-left px-3 py-2 text-s text-[#00cfff] hover:bg-[#24272c] flex items-center gap-2"
               >
                 <Pencil size={14} /> Rename
               </button>
@@ -135,7 +135,7 @@ export default function ConversationItem({
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-[#24272c] flex items-center gap-2"
+                className="w-full text-left px-3 py-2 text-s text-red-400 hover:bg-[#24272c] flex items-center gap-2"
               >
                 <Trash2 size={14} /> Delete
               </button>

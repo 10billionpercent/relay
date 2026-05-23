@@ -119,12 +119,12 @@ export default function Sidebar({
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <span className="text-sm truncate">{user?.username}</span>
+            <span className="text-s truncate">{user?.username}</span>
             <button
               onClick={onLogout}
               className="text-gray-400 hover:text-white flex items-center gap-1"
             >
-              <LogOut size={14} /> <span className="text-xs">Logout</span>
+              <LogOut size={16} /> <span className="text-s">Logout</span>
             </button>
           </div>
         )}

@@ -1,14 +1,33 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Menu, Loader2 } from "lucide-react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useParams,
+  useLocation,
+} from "react-router-dom";
 import type { Message, Conversation, Model, UserData } from "./types";
-import { MODEL_NAMES, API_URL } from "./constants";
-import AuthScreen from "./components/AuthScreen";
-import Sidebar from "./components/Sidebar";
-import Dashboard from "./components/Dashboard";
-import ChatView from "./components/ChatView";
+import { API_URL } from "./constants";
+import AuthPage from "./pages/AuthPage";
+import ChatPage from "./pages/ChatPage";
 
+// ─── Root component ──────────────────────
 function App() {
-  // ─── Auth state ──────────────────────────
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
+  );
+}
+
+// ─── Routes + global state ───────────────
+function AppRoutes() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Auth state
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("token"),
   );
@@ -16,23 +35,15 @@ function App() {
     const stored = localStorage.getItem("user");
     return stored ? JSON.parse(stored) : null;
   });
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [authUsername, setAuthUsername] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authError, setAuthError] = useState("");
   const [serverDown, setServerDown] = useState(false);
   const serverDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ─── App state ───────────────────────────
+  // App state
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversationId, setCurrentConversationId] = useState<
-    string | null
-  >(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showDashboard, setShowDashboard] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState(
@@ -45,34 +56,39 @@ function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ─── Sidebar state ───────────────────────
+  // Sidebar / UI state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  // ─── Copy / Edit ─────────────────────────
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-
-  // ─── Context menu ────────────────────────
   const [menuOpenConvId, setMenuOpenConvId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  // ─── Rename ──────────────────────────────
   const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
-
-  // ─── Loading conversation ────────────────
   const [loadingConversationId, setLoadingConversationId] = useState<
     string | null
   >(null);
   const loadConversationAbortRef = useRef<AbortController | null>(null);
 
-  const currentConversationTitle = currentConversationId
-    ? conversations.find((c) => c.id === currentConversationId)?.title ||
-      "Untitled"
-    : "New Conversation";
+  // Current conversation ID (synced with URL param)
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
 
-  // ─── Effects ─────────────────────────────
+  // Sync URL param → state
+  const SyncConversationId = () => {
+    const { conversationId } = useParams<{ conversationId?: string }>();
+    useEffect(() => {
+      if (conversationId) {
+        setCurrentConversationId(conversationId);
+      } else {
+        setCurrentConversationId(null);
+      }
+    }, [conversationId]);
+    return null;
+  };
+
+  // ─── Effects ────────────────────────────
   useEffect(() => {
     localStorage.setItem("selectedModel", selectedModel);
   }, [selectedModel]);
@@ -83,13 +99,8 @@ function App() {
     textarea.style.height = "0px";
     const newHeight = textarea.scrollHeight;
     const maxHeight = 8 * 24 + 32;
-    if (newHeight > maxHeight) {
-      textarea.style.height = `${maxHeight}px`;
-      textarea.style.overflowY = "auto";
-    } else {
-      textarea.style.height = `${newHeight}px`;
-      textarea.style.overflowY = "hidden";
-    }
+    textarea.style.height = `${Math.min(newHeight, maxHeight)}px`;
+    textarea.style.overflowY = newHeight > maxHeight ? "auto" : "hidden";
   }, [input]);
 
   useEffect(() => {
@@ -192,7 +203,11 @@ function App() {
         } catch {}
       }
       setCurrentConversationId(savedId);
-      loadConversation(savedId);
+      if (location.pathname === "/dashboard") return; // don't override dashboard
+      navigate(`/chat/${savedId}`, { replace: true });
+    } else {
+      if (location.pathname === "/dashboard") return;
+      navigate(`/chat`, { replace: true });
     }
   }, [user]);
 
@@ -206,6 +221,13 @@ function App() {
     else localStorage.removeItem("currentConversationId");
   }, [currentConversationId]);
 
+  // Load stats automatically when on /dashboard
+  useEffect(() => {
+    if (location.pathname === "/dashboard" && user && token) {
+      loadStats();
+    }
+  }, [location.pathname, user, token]);
+
   // ─── Functions ───────────────────────────
   const logout = () => {
     localStorage.removeItem("token");
@@ -217,41 +239,39 @@ function App() {
     setCurrentConversationId(null);
     setMessages([]);
     setServerDown(false);
+    navigate("/login");
   };
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAuth = async (
+    mode: "login" | "signup",
+    username: string,
+    password: string,
+    setAuthError: (err: string) => void,
+  ) => {
     setAuthError("");
-    const endpoint =
-      authMode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+    const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
     try {
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: authUsername,
-          password: authPassword,
-        }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (data.error) {
-        if (data.code === "USER_NOT_FOUND") {
+        if (data.code === "USER_NOT_FOUND")
           setAuthError("No account found. Please sign up.");
-          setAuthMode("signup");
-        } else if (data.code === "USERNAME_TAKEN") {
+        else if (data.code === "USERNAME_TAKEN")
           setAuthError("Username already taken. Please log in.");
-          setAuthMode("login");
-        } else setAuthError(data.error);
+        else setAuthError(data.error);
       } else {
         localStorage.setItem("token", data.token);
         localStorage.setItem("user", JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
-        setAuthUsername("");
-        setAuthPassword("");
+        navigate("/chat");
       }
     } catch {
-      setAuthError("Network error. Please try again.");
+      setAuthError("Network error.");
     }
   };
 
@@ -277,10 +297,8 @@ function App() {
 
   const loadConversation = async (id: string) => {
     if (!token) return;
-    setShowDashboard(false);
     if (loadConversationAbortRef.current)
       loadConversationAbortRef.current.abort();
-    setCurrentConversationId(id);
     setLoadingConversationId(id);
     const controller = new AbortController();
     loadConversationAbortRef.current = controller;
@@ -295,8 +313,7 @@ function App() {
         localStorage.setItem(`messages_${id}`, JSON.stringify(data.messages));
       }
     } catch (err: any) {
-      if (err.name !== "AbortError")
-        console.error("Failed to load conversation:", err);
+      if (err.name !== "AbortError") console.error(err);
     } finally {
       if (loadConversationAbortRef.current === controller)
         loadConversationAbortRef.current = null;
@@ -370,8 +387,10 @@ function App() {
       if (data.error) setError(data.error);
       else {
         setMessages((prev) => [...prev, data.message]);
-        if (!currentConversationId)
+        if (!currentConversationId) {
           setCurrentConversationId(data.conversation.id);
+          navigate(`/chat/${data.conversation.id}`, { replace: true });
+        }
         setInput("");
         loadConversations();
       }
@@ -385,13 +404,13 @@ function App() {
 
   const newConversation = () => {
     stopGenerating();
-    setShowDashboard(false);
-    setCurrentConversationId(null);
     setMessages([]);
     setInput("");
     setError(null);
     setEditingMessageId(null);
+    navigate("/chat");
   };
+
   const deleteConversation = async (id: string) => {
     if (!token) return;
     try {
@@ -407,6 +426,7 @@ function App() {
       setMenuOpenConvId(null);
     }
   };
+
   const renameConversation = async (id: string, newTitle: string) => {
     if (!token || !newTitle.trim()) return;
     try {
@@ -425,6 +445,7 @@ function App() {
       setMenuOpenConvId(null);
     }
   };
+
   const loadStats = async () => {
     if (!token) return;
     try {
@@ -432,7 +453,6 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setStats(await res.json());
-      setShowDashboard(true);
     } catch {}
   };
 
@@ -447,112 +467,230 @@ function App() {
     }
   };
 
-  // ─── Render ──────────────────────────────
-  if (!user)
-    return (
-      <AuthScreen
-        authMode={authMode}
-        setAuthMode={setAuthMode}
-        authUsername={authUsername}
-        setAuthUsername={setAuthUsername}
-        authPassword={authPassword}
-        setAuthPassword={setAuthPassword}
-        authError={authError}
-        handleAuth={handleAuth}
-      />
-    );
-
+  // ─── Routes ─────────────────────────────
   return (
-    <div
-      className="h-screen flex bg-[#111315] text-white"
-      style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
-    >
-      {mobileSidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
-      <Sidebar
-        user={user}
-        conversations={conversations}
-        currentConversationId={currentConversationId}
-        sidebarCollapsed={sidebarCollapsed}
-        setSidebarCollapsed={setSidebarCollapsed}
-        mobileSidebarOpen={mobileSidebarOpen}
-        setMobileSidebarOpen={setMobileSidebarOpen}
-        serverDown={serverDown}
-        renamingConvId={renamingConvId}
-        setRenamingConvId={setRenamingConvId}
-        renameTitle={renameTitle}
-        setRenameTitle={setRenameTitle}
-        menuOpenConvId={menuOpenConvId}
-        setMenuOpenConvId={setMenuOpenConvId}
-        menuRef={menuRef}
-        loadingConversationId={loadingConversationId}
-        onSelectConversation={(id) => {
-          loadConversation(id);
-          setMobileSidebarOpen(false);
-        }}
-        onNewConversation={newConversation}
-        onDashboard={loadStats}
-        onLogout={logout}
-        onDeleteConversation={deleteConversation}
-        onRenameConversation={renameConversation}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center h-16 px-4 border-b border-[#2a2d33] bg-[#1a1d21] lg:px-6">
-          <button
-            onClick={() => setMobileSidebarOpen(true)}
-            className="lg:hidden mr-3 text-gray-400 hover:text-white flex-shrink-0"
-          >
-            <Menu size={24} />
-          </button>
-          <h1 className="text-lg font-semibold truncate">
-            {showDashboard ? "Analytics Dashboard" : currentConversationTitle}
-          </h1>
-          {loadingConversationId && (
-            <Loader2 size={16} className="animate-spin ml-3 text-gray-400" />
-          )}
-        </div>
-
-        <div className="flex-1 flex flex-col min-h-0">
-          {showDashboard && stats ? (
-            <Dashboard stats={stats} onRefresh={loadStats} />
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          user ? (
+            <Navigate to="/chat" replace />
           ) : (
-            <ChatView
-              setSelectedModel={setSelectedModel}
-              messages={messages}
+            <AuthPage
+              onAuth={(mode, username, password, setError) =>
+                handleAuth(mode, username, password, setError)
+              }
+            />
+          )
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          !user ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <>
+              <SyncConversationId />
+              <ChatPage
+                user={user}
+                conversations={conversations}
+                currentConversationId={currentConversationId}
+                messages={messages}
+                input={input}
+                setInput={setInput}
+                loading={loading}
+                error={error}
+                showDashboard={false}
+                stats={null}
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                models={models}
+                modelDropdownOpen={modelDropdownOpen}
+                setModelDropdownOpen={setModelDropdownOpen}
+                modelDropdownRef={modelDropdownRef as any}
+                sidebarCollapsed={sidebarCollapsed}
+                setSidebarCollapsed={setSidebarCollapsed}
+                mobileSidebarOpen={mobileSidebarOpen}
+                setMobileSidebarOpen={setMobileSidebarOpen}
+                serverDown={serverDown}
+                renamingConvId={renamingConvId}
+                setRenamingConvId={setRenamingConvId}
+                renameTitle={renameTitle}
+                setRenameTitle={setRenameTitle}
+                menuOpenConvId={menuOpenConvId}
+                setMenuOpenConvId={setMenuOpenConvId}
+                menuRef={menuRef}
+                loadingConversationId={loadingConversationId}
+                copiedId={copiedId}
+                editingMessageId={editingMessageId}
+                textareaRef={textareaRef}
+                messagesEndRef={messagesEndRef}
+                onSelectConversation={(id) => {
+                  loadConversation(id);
+                  navigate(`/chat/${id}`);
+                  setMobileSidebarOpen(false);
+                }}
+                onNewConversation={newConversation}
+                onDashboard={() => navigate("/dashboard")}
+                onLogout={logout}
+                onDeleteConversation={deleteConversation}
+                onRenameConversation={renameConversation}
+                onSend={sendMessage}
+                onStop={stopGenerating}
+                onCopy={copyMessage}
+                onEdit={editMessage}
+                onCancelEdit={cancelEdit}
+                onDismissError={() => setError(null)}
+                onKeyDown={handleKeyDown}
+              />
+            </>
+          )
+        }
+      />
+      <Route
+        path="/chat/:conversationId"
+        element={
+          !user ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <>
+              <SyncConversationId />
+              <ChatPage
+                user={user}
+                conversations={conversations}
+                currentConversationId={currentConversationId}
+                messages={messages}
+                input={input}
+                setInput={setInput}
+                loading={loading}
+                error={error}
+                showDashboard={false}
+                stats={null}
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                models={models}
+                modelDropdownOpen={modelDropdownOpen}
+                setModelDropdownOpen={setModelDropdownOpen}
+                modelDropdownRef={modelDropdownRef as any}
+                sidebarCollapsed={sidebarCollapsed}
+                setSidebarCollapsed={setSidebarCollapsed}
+                mobileSidebarOpen={mobileSidebarOpen}
+                setMobileSidebarOpen={setMobileSidebarOpen}
+                serverDown={serverDown}
+                renamingConvId={renamingConvId}
+                setRenamingConvId={setRenamingConvId}
+                renameTitle={renameTitle}
+                setRenameTitle={setRenameTitle}
+                menuOpenConvId={menuOpenConvId}
+                setMenuOpenConvId={setMenuOpenConvId}
+                menuRef={menuRef}
+                loadingConversationId={loadingConversationId}
+                copiedId={copiedId}
+                editingMessageId={editingMessageId}
+                textareaRef={textareaRef}
+                messagesEndRef={messagesEndRef}
+                onSelectConversation={(id) => {
+                  loadConversation(id);
+                  navigate(`/chat/${id}`);
+                  setMobileSidebarOpen(false);
+                }}
+                onNewConversation={newConversation}
+                onDashboard={() => navigate("/dashboard")}
+                onLogout={logout}
+                onDeleteConversation={deleteConversation}
+                onRenameConversation={renameConversation}
+                onSend={sendMessage}
+                onStop={stopGenerating}
+                onCopy={copyMessage}
+                onEdit={editMessage}
+                onCancelEdit={cancelEdit}
+                onDismissError={() => setError(null)}
+                onKeyDown={handleKeyDown}
+              />
+            </>
+          )
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          !user ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <ChatPage
               user={user}
+              conversations={conversations}
+              currentConversationId={null}
+              messages={[]}
+              input=""
+              setInput={() => {}}
+              loading={false}
+              error={null}
+              showDashboard={true}
+              stats={stats}
               selectedModel={selectedModel}
-              input={input}
-              setInput={setInput}
-              loading={loading}
-              error={error}
-              editingMessageId={editingMessageId}
-              onCancelEdit={cancelEdit}
-              copiedId={copiedId}
-              textareaRef={textareaRef}
-              messagesEndRef={messagesEndRef}
+              setSelectedModel={setSelectedModel}
               models={models}
               modelDropdownOpen={modelDropdownOpen}
               setModelDropdownOpen={setModelDropdownOpen}
               modelDropdownRef={modelDropdownRef as any}
-              onKeyDown={handleKeyDown}
-              onSend={sendMessage}
-              onStop={stopGenerating}
-              onCopy={copyMessage}
-              onEdit={editMessage}
-              title={currentConversationTitle}
-              loadingConversationId={loadingConversationId}
-              onDismissError={() => setError(null)}
+              sidebarCollapsed={sidebarCollapsed}
+              setSidebarCollapsed={setSidebarCollapsed}
+              mobileSidebarOpen={mobileSidebarOpen}
+              setMobileSidebarOpen={setMobileSidebarOpen}
+              serverDown={serverDown}
+              renamingConvId={null}
+              setRenamingConvId={() => {}}
+              renameTitle=""
+              setRenameTitle={() => {}}
+              menuOpenConvId={null}
+              setMenuOpenConvId={() => {}}
+              menuRef={menuRef}
+              loadingConversationId={null}
+              copiedId={null}
+              editingMessageId={null}
+              textareaRef={textareaRef}
+              messagesEndRef={messagesEndRef}
+              onSelectConversation={(id) => {
+                loadConversation(id);
+                navigate(`/chat/${id}`);
+                setMobileSidebarOpen(false);
+              }}
+              onNewConversation={newConversation}
+              onDashboard={() => navigate("/dashboard")}
+              onLogout={logout}
+              onDeleteConversation={deleteConversation}
+              onRenameConversation={renameConversation}
+              onSend={() => {}}
+              onStop={() => {}}
+              onCopy={() => {}}
+              onEdit={() => {}}
+              onCancelEdit={() => {}}
+              onDismissError={() => {}}
+              onKeyDown={() => {}}
             />
-          )}
-        </div>
-      </div>
-    </div>
+          )
+        }
+      />
+      <Route
+        path="*"
+        element={
+          user ? (
+            <Navigate
+              to={
+                localStorage.getItem("currentConversationId")
+                  ? `/chat/${localStorage.getItem("currentConversationId")}`
+                  : "/chat"
+              }
+              replace
+            />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+    </Routes>
   );
 }
 

@@ -27,7 +27,7 @@ export default function ModelSelector({
     >
       <button
         onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-        className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
+        className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-s rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
       >
         <span className="truncate">
           {MODEL_NAMES[selectedModel] || selectedModel}
@@ -46,7 +46,7 @@ export default function ModelSelector({
                 setSelectedModel(m.model);
                 setModelDropdownOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 text-xs hover:bg-[#24272c] transition ${
+              className={`w-full text-left px-3 py-2 text-s hover:bg-[#24272c] transition ${
                 m.model === selectedModel
                   ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]"
                   : "text-gray-300"
