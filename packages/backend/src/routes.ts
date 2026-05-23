@@ -85,20 +85,23 @@ function mapMessage(row: Record<string, unknown>): Message {
   };
 }
 
-// Auto-generate a conversation title (unchanged)
 async function generateConversationTitle(
   userMessage: string,
   assistantMessage: string,
   llmClient: LoggedLLMClient,
 ): Promise<string> {
   try {
+    // Access the raw Groq provider (bypasses the SDK's JSON‑wrapping prompt)
+    const groqProvider = (llmClient as any).providers?.get("groq");
+    if (!groqProvider) throw new Error("Groq provider not available");
+
     const messages: Message[] = [
       {
         id: uuidv4(),
         conversationId: "title-gen",
         role: "system",
         content:
-          'You are a title generator. Read the conversation below and output a SHORT title (max 3 words) that describes the topic. Do NOT use any of these words: "reply", "response", "title". Do NOT use quotes or punctuation. Output only the title, nothing else.',
+          "You are a title generator. Write a very short, natural, descriptive title (2-3 words) for this conversation. Output ONLY the title – no punctuation, no quotes, no markdown, no extra text.",
         timestamp: Date.now(),
       },
       {
@@ -110,41 +113,37 @@ async function generateConversationTitle(
       },
     ];
 
-    const { message } = await llmClient.chat(messages, "llama-3.1-8b-instant");
-    let raw = message.content.trim();
+    // Direct call → returns LLMResponse (has .content directly)
+    const response: LLMResponse = await groqProvider.chat(
+      messages,
+      "llama-3.3-70b-versatile",
+    );
+
+    let raw = response.content.trim();
     console.log("[Title] Raw LLM response:", raw);
 
-    // Remove all punctuation except spaces
+    // Remove any remaining punctuation / quotes
     raw = raw
-      .replace(/["'`“”‘’]/g, "") // remove quotes
-      .replace(/[.,\/#!$%\^&\*;:{}=_~()\[\]<>]/g, " ") // other punctuation
+      .replace(/[^\w\s]/g, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
 
-    if (!raw) {
-      console.warn("[Title] Cleaned title is empty, using fallback.");
-      return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
-    }
-
-    // Filter out common meta words (case‑insensitive)
-    const blockedWords = ["reply", "response", "title", "chat", "conversation"];
-    const words = raw
-      .split(/\s+/)
-      .filter((w) => !blockedWords.includes(w.toLowerCase()));
-
-    // Take first 3 meaningful words
-    const title = words.slice(0, 3).join(" ");
-
-    if (!title) {
-      console.warn("[Title] After filtering, title is empty, using fallback.");
-      return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
-    }
+    // Take first 3 words (max)
+    const words = raw.split(/\s+/).slice(0, 3);
+    const title = words.join(" ");
 
     console.log("[Title] Final title:", title);
-    return title;
+    return (
+      title ||
+      userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") ||
+      "New Chat"
+    );
   } catch (e) {
-    console.error("Title generation failed, using fallback:", e);
-    return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
+    console.error("[Title] Generation failed, using fallback:", e);
+    return (
+      userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") ||
+      "New Chat"
+    );
   }
 }
 
