@@ -171,7 +171,7 @@ export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
         ];
         return allowed.includes(origin) ? origin : allowed[0];
       },
-      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
     }),
   );
@@ -530,6 +530,30 @@ export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
       .prepare("UPDATE conversations SET status = 'active' WHERE id = ?")
       .run(id);
     return c.json({ success: true });
+  });
+
+  // Rename conversation
+  app.patch("/api/conversations/:id/rename", async (c) => {
+    const user = c.get("user") as User;
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { title } = z
+      .object({ title: z.string().min(1).max(100) })
+      .parse(body);
+
+    const conversation = await db
+      .prepare(
+        "SELECT id FROM conversations WHERE id = ? AND user_id = ? AND status = 'active'",
+      )
+      .get(id, user.id);
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+
+    await db
+      .prepare(
+        "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(title, Date.now(), id);
+    return c.json({ success: true, title });
   });
 
   // Ingestion endpoint
