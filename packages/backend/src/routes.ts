@@ -447,13 +447,21 @@ export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
       console.error("Chat error:", error);
       if (error instanceof z.ZodError)
         return c.json({ error: "Invalid request", details: error.errors }, 400);
-      return c.json(
-        {
-          error:
-            error instanceof Error ? error.message : "Internal server error",
-        },
-        500,
-      );
+
+      // Groq rate limit → friendly message
+      const msg =
+        error instanceof Error ? error.message : "Internal server error";
+      if (msg.includes("429") || msg.includes("rate") || msg.includes("Rate")) {
+        return c.json(
+          {
+            error:
+              "This model is busy right now. Please try again in a few seconds, or switch to a different model.",
+          },
+          429,
+        );
+      }
+
+      return c.json({ error: msg }, 500);
     }
   });
 
