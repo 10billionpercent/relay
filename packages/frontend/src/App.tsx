@@ -23,6 +23,9 @@ interface Model {
 const API_URL = "http://localhost:3001";
 
 function App() {
+  const [userName, setUserName] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
@@ -37,8 +40,9 @@ function App() {
   const [selectedModel, setSelectedModel] = useState("llama-3.1-8b-instant");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentConversationTitle = currentConversationId
-  ? conversations.find((c) => c.id === currentConversationId)?.title || "Untitled"
-  : "New Conversation";
+    ? conversations.find((c) => c.id === currentConversationId)?.title ||
+      "Untitled"
+    : "New Conversation";
 
   useEffect(() => {
     loadConversations();
@@ -91,18 +95,15 @@ function App() {
     setLoading(true);
     setError(null);
 
-    // 1. Create user message for instant display
     const userMessage: Message = {
-      id: Date.now().toString(), // temporary local ID
+      id: Date.now().toString(),
       role: "user",
       content: input,
       timestamp: Date.now(),
     };
 
-    // 2. Add to the state right now (optimistic update)
     setMessages((prev) => [...prev, userMessage]);
 
-    // 3. Build payload (only include conversationId if present)
     const payload: any = {
       message: input,
       model: selectedModel,
@@ -123,15 +124,12 @@ function App() {
       if (data.error) {
         setError(data.error);
       } else {
-        // 4. Append the assistant's response to the existing messages
         setMessages((prev) => [...prev, data.message]);
 
-        // Update the current conversation ID if it was a new chat
         if (!currentConversationId) {
           setCurrentConversationId(data.conversation.id);
         }
 
-        // Clear input and refresh sidebar
         setInput("");
         loadConversations();
       }
@@ -179,6 +177,47 @@ function App() {
     }
   };
 
+  const handleNameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = nameInput.trim();
+    if (trimmed) {
+      setUserName(trimmed);
+      setNameInput("");
+    }
+  };
+
+  // --- Welcome Screen (with logo) ---
+  if (userName === null) {
+    return (
+      <div className="welcome-screen">
+        <div className="welcome-card">
+          <div className="logo-title">
+            <img src="/relay.png" alt="Relay Logo" className="relay-logo-img" />
+            <h1>Relay</h1>
+          </div>
+          <p className="welcome-subtitle">Your AI assistant powered by Groq</p>
+          <form onSubmit={handleNameSubmit} className="name-form">
+            <label htmlFor="name-input">What's your name?</label>
+            <input
+              id="name-input"
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Enter your name..."
+              autoFocus
+              required
+              className="name-input"
+            />
+            <button type="submit" className="name-submit-btn">
+              Let's go →
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Main App ---
   return (
     <div className="app">
       <div className="sidebar">
@@ -189,7 +228,6 @@ function App() {
           📊 Dashboard
         </button>
 
-        {/* Model Selector */}
         <div className="model-selector">
           <label htmlFor="model-select">Model:</label>
           <select
