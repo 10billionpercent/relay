@@ -4,16 +4,28 @@ import type { LLMResponse, TokenUsage } from "@relay/shared";
 export interface LLMProvider {
   name: string;
   models: string[];
-  initialize?(): Promise<void>; // Added to fetch models asynchronously
+  initialize?(): Promise<void>;
   chat(
     messages: { role: string; content: string }[],
     model: string,
   ): Promise<LLMResponse>;
 }
 
+// Models containing these keywords are classifiers / non‑chat models
+const NON_CHAT_KEYWORDS = [
+  "prompt-guard",
+  "safeguard",
+  "moderation",
+  "guard",
+  "classifier",
+  "embedding",
+  "whisper",
+  "orpheus",
+];
+
 export class GroqProvider implements LLMProvider {
   name = "groq";
-  models: string[] = []; // Starts empty, populated dynamically
+  models: string[] = [];
 
   private client: Groq;
   private defaultModel = "llama-3.1-8b-instant";
@@ -22,30 +34,27 @@ export class GroqProvider implements LLMProvider {
     this.client = new Groq({ apiKey });
   }
 
-  // The automated fetch function
   async initialize(): Promise<void> {
     try {
       const response = await this.client.models.list();
-
-      // Filter out Whisper audio models if you only want text/vision chat models
       this.models = response.data
         .map((m) => m.id)
-        .filter((id) => !id.includes("whisper") && !id.includes("orpheus"));
+        .filter((id) => !id.includes("whisper") && !id.includes("orpheus"))
+        .filter(
+          (id) =>
+            !NON_CHAT_KEYWORDS.some((kw) => id.toLowerCase().includes(kw)),
+        );
 
-      console.log(
-        `[Groq] Successfully synced ${this.models.length} live models.`,
-      );
+      console.log(`[Groq] Synced ${this.models.length} chat models.`);
     } catch (error) {
       console.error(
-        "[Groq] Failed to fetch live models, falling back to defaults.",
+        "[Groq] Failed to fetch models, using fallback list.",
         error,
       );
-      // Foolproof fallback array if Groq's model endpoint drops
       this.models = [
         "llama-3.1-8b-instant",
         "llama-3.3-70b-versatile",
         "qwen/qwen3-32b",
-        "openai/gpt-oss-safeguard-20b",
         "llama3-8b-8192",
       ];
     }
@@ -63,7 +72,6 @@ export class GroqProvider implements LLMProvider {
           content: m.content,
         })),
         temperature: 0.7,
-        max_tokens: 1024,
       });
 
       const usage: TokenUsage = {
