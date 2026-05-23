@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import {
-  User,
   LogOut,
   Plus,
   BarChart3,
   Trash2,
   MessageCircle,
-  Bot,
   UserCircle,
   AlertTriangle,
   Send,
@@ -175,6 +173,7 @@ function App() {
 
   const loadConversation = async (id: string) => {
     if (!token) return;
+    setShowDashboard(false); // close dashboard
     try {
       const res = await fetch(`${API_URL}/api/conversations/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -244,6 +243,7 @@ function App() {
   };
 
   const newConversation = () => {
+    setShowDashboard(false); // close dashboard
     setCurrentConversationId(null);
     setMessages([]);
     setInput("");
@@ -338,10 +338,6 @@ function App() {
       <div className="sidebar">
         <div className="user-info">
           <span>
-            <User
-              size={16}
-              style={{ marginRight: 6, verticalAlign: "middle" }}
-            />
             {user.username}
           </span>
           <button onClick={logout} className="logout-btn">
@@ -533,13 +529,6 @@ function App() {
               )}
               {messages.map((msg) => (
                 <div key={msg.id} className={`message ${msg.role}`}>
-                  <div className="message-avatar">
-                    {msg.role === "user" ? (
-                      <UserCircle size={20} />
-                    ) : (
-                      <Bot size={20} />
-                    )}
-                  </div>
                   <div className="message-content">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
@@ -547,9 +536,6 @@ function App() {
               ))}
               {loading && (
                 <div className="message assistant">
-                  <div className="message-avatar">
-                    <Bot size={20} />
-                  </div>
                   <div className="message-content">
                     <div className="typing-indicator">
                       <span></span>
