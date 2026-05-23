@@ -421,7 +421,7 @@ function App() {
     }
   };
 
-  // ---- Loading screen while checking auth ----meowing
+  // ---- Loading screen while checking auth ---
   if (authLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#111315]">

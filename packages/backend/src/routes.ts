@@ -135,11 +135,15 @@ export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
   app.use(
     "/*",
     cors({
-      origin: [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-      ],
+      origin: (origin) => {
+        const allowed = [
+          "http://localhost:5173",
+          "http://localhost:3000",
+          "http://127.0.0.1:5173",
+          "https://relay-ai-chat.pages.dev",
+        ];
+        return allowed.includes(origin) ? origin : allowed[0];
+      },
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowHeaders: ["Content-Type", "Authorization"],
     }),
