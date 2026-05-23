@@ -98,7 +98,7 @@ async function generateConversationTitle(
         conversationId: "title-gen",
         role: "system",
         content:
-          'You are a title generator. Read the conversation below and output a SHORT title (max 3 words) that describes the topic. Do NOT use quotes, punctuation, or the word "title". Examples: "Morning Chat", "Anime Talk", "Cooking Tips". Only output the title, nothing else.',
+          'You are a title generator. Read the conversation below and output a SHORT title (max 3 words) that describes the topic. Do NOT use any of these words: "reply", "response", "title". Do NOT use quotes or punctuation. Output only the title, nothing else.',
         timestamp: Date.now(),
       },
       {
@@ -114,10 +114,9 @@ async function generateConversationTitle(
     let raw = message.content.trim();
     console.log("[Title] Raw LLM response:", raw);
 
-    // Remove common formatting but keep letters and spaces
+    // Remove all punctuation except spaces
     raw = raw
-      .replace(/^[ \t]*["'`]/gm, "") // leading quotes
-      .replace(/["'`][ \t]*$/gm, "") // trailing quotes
+      .replace(/["'`“”‘’]/g, "") // remove quotes
       .replace(/[.,\/#!$%\^&\*;:{}=_~()\[\]<>]/g, " ") // other punctuation
       .replace(/\s{2,}/g, " ")
       .trim();
@@ -127,8 +126,20 @@ async function generateConversationTitle(
       return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
     }
 
-    const words = raw.split(/\s+/).slice(0, 3);
-    const title = words.join(" ");
+    // Filter out common meta words (case‑insensitive)
+    const blockedWords = ["reply", "response", "title", "chat", "conversation"];
+    const words = raw
+      .split(/\s+/)
+      .filter((w) => !blockedWords.includes(w.toLowerCase()));
+
+    // Take first 3 meaningful words
+    const title = words.slice(0, 3).join(" ");
+
+    if (!title) {
+      console.warn("[Title] After filtering, title is empty, using fallback.");
+      return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
+    }
+
     console.log("[Title] Final title:", title);
     return title;
   } catch (e) {
