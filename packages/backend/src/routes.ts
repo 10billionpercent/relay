@@ -510,48 +510,76 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   });
 
   // Dashboard stats
+  // Dashboard stats (per‑user)
   app.get("/api/stats", (c) => {
     try {
+      const user = c.get("user") as User; // from authMiddleware
+
       const stats = {
         totalConversations: db
           .prepare(
-            "SELECT COUNT(*) as count FROM conversations WHERE status = ?",
+            "SELECT COUNT(*) as count FROM conversations WHERE status = ? AND user_id = ?",
           )
-          .get("active"),
+          .get("active", user.id),
         totalMessages: db
-          .prepare("SELECT COUNT(*) as count FROM messages")
-          .get(),
+          .prepare(
+            `SELECT COUNT(*) as count 
+           FROM messages m 
+           INNER JOIN conversations c ON m.conversation_id = c.id 
+           WHERE c.user_id = ?`,
+          )
+          .get(user.id),
         avgLatency: db
           .prepare(
-            "SELECT AVG(latency_ms) as avg FROM inference_logs WHERE status = 'success'",
+            `SELECT AVG(il.latency_ms) as avg 
+           FROM inference_logs il 
+           INNER JOIN conversations c ON il.conversation_id = c.id 
+           WHERE c.user_id = ? AND il.status = 'success'`,
           )
-          .get(),
+          .get(user.id),
         errorRate: db
           .prepare(
-            "SELECT ROUND(COUNT(CASE WHEN status = 'error' THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2) as rate FROM inference_logs",
+            `SELECT ROUND(
+             COUNT(CASE WHEN il.status = 'error' THEN 1 END) * 100.0 / 
+             NULLIF(COUNT(*), 0), 
+             2
+           ) as rate 
+           FROM inference_logs il 
+           INNER JOIN conversations c ON il.conversation_id = c.id 
+           WHERE c.user_id = ?`,
           )
-          .get(),
+          .get(user.id),
         tokenUsage: db
           .prepare(
-            `
-            SELECT 
-              COALESCE(SUM(prompt_tokens), 0) as total_prompt,
-              COALESCE(SUM(completion_tokens), 0) as total_completion,
-              COALESCE(SUM(total_tokens), 0) as total_tokens
-            FROM inference_logs WHERE status = 'success'
-          `,
+            `SELECT 
+             COALESCE(SUM(il.prompt_tokens), 0) as total_prompt,
+             COALESCE(SUM(il.completion_tokens), 0) as total_completion,
+             COALESCE(SUM(il.total_tokens), 0) as total_tokens
+           FROM inference_logs il 
+           INNER JOIN conversations c ON il.conversation_id = c.id 
+           WHERE c.user_id = ? AND il.status = 'success'`,
           )
-          .get(),
+          .get(user.id),
         modelDistribution: db
           .prepare(
-            "SELECT model, COUNT(*) as count FROM inference_logs GROUP BY model ORDER BY count DESC",
+            `SELECT il.model, COUNT(*) as count 
+           FROM inference_logs il 
+           INNER JOIN conversations c ON il.conversation_id = c.id 
+           WHERE c.user_id = ? 
+           GROUP BY il.model 
+           ORDER BY count DESC`,
           )
-          .all(),
+          .all(user.id),
         recentLogs: db
           .prepare(
-            "SELECT * FROM inference_logs ORDER BY timestamp DESC LIMIT 50",
+            `SELECT il.* 
+           FROM inference_logs il 
+           INNER JOIN conversations c ON il.conversation_id = c.id 
+           WHERE c.user_id = ? 
+           ORDER BY il.timestamp DESC 
+           LIMIT 50`,
           )
-          .all(),
+          .all(user.id),
       };
 
       return c.json(stats);
