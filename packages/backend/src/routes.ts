@@ -98,7 +98,7 @@ async function generateConversationTitle(
         conversationId: "title-gen",
         role: "system",
         content:
-          "Write a very short, natural title for this conversation (maximum 3 words). Examples: 'Morning Chat', 'Anime Talk', 'Cooking Tips'. Do NOT include the word 'title' or any explanation. Output ONLY the title, no punctuation.",
+          'You are a title generator. Read the conversation below and output a SHORT title (max 3 words) that describes the topic. Do NOT use quotes, punctuation, or the word "title". Examples: "Morning Chat", "Anime Talk", "Cooking Tips". Only output the title, nothing else.',
         timestamp: Date.now(),
       },
       {
@@ -109,15 +109,28 @@ async function generateConversationTitle(
         timestamp: Date.now(),
       },
     ];
+
     const { message } = await llmClient.chat(messages, "llama-3.1-8b-instant");
-    let title = message.content.trim();
-    title = title.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()'"“”‘’]/g, "");
-    title = title.replace(/\s{2,}/g, " ").trim();
-    const words = title.split(/\s+/);
-    title = words.slice(0, 3).join(" ");
-    return (
-      title || userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ")
-    );
+    let raw = message.content.trim();
+    console.log("[Title] Raw LLM response:", raw);
+
+    // Remove common formatting but keep letters and spaces
+    raw = raw
+      .replace(/^[ \t]*["'`]/gm, "") // leading quotes
+      .replace(/["'`][ \t]*$/gm, "") // trailing quotes
+      .replace(/[.,\/#!$%\^&\*;:{}=_~()\[\]<>]/g, " ") // other punctuation
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+    if (!raw) {
+      console.warn("[Title] Cleaned title is empty, using fallback.");
+      return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
+    }
+
+    const words = raw.split(/\s+/).slice(0, 3);
+    const title = words.join(" ");
+    console.log("[Title] Final title:", title);
+    return title;
   } catch (e) {
     console.error("Title generation failed, using fallback:", e);
     return userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ");
