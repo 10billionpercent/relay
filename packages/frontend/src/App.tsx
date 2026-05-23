@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown"; 
+import ReactMarkdown from "react-markdown";
 import {
   Menu,
   X,
@@ -18,6 +18,9 @@ import {
   PanelLeft,
   Square,
   ChevronDown,
+  Copy,
+  Check,
+  Pencil,
 } from "lucide-react";
 
 interface Message {
@@ -88,11 +91,17 @@ function App() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null); // NEW ref for auto-resize
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Copy feedback state
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Edit state
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   const currentConversationTitle = currentConversationId
     ? conversations.find((c) => c.id === currentConversationId)?.title ||
@@ -103,14 +112,9 @@ function App() {
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-
-    // Reset height to recalculate
     textarea.style.height = "0px";
     const newHeight = textarea.scrollHeight;
-
-    // Max height for ~8 rows (approx 8 * 24px per row + padding)
-    const maxHeight = 8 * 24 + 32; // ~224px
-
+    const maxHeight = 8 * 24 + 32;
     if (newHeight > maxHeight) {
       textarea.style.height = `${maxHeight}px`;
       textarea.style.overflowY = "auto";
@@ -150,11 +154,9 @@ function App() {
       setAuthLoading(false);
       return;
     }
-
     let didCancel = false;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
-
     const verify = async () => {
       try {
         const res = await fetch(`${API_URL}/api/auth/me`, {
@@ -162,7 +164,6 @@ function App() {
           signal: controller.signal,
         });
         if (didCancel) return;
-
         if (res.status === 401) {
           localStorage.removeItem("token");
           setToken(null);
@@ -176,19 +177,13 @@ function App() {
           setServerDown(true);
         }
       } catch (err: any) {
-        if (err.name === "AbortError") {
-          console.warn("Auth check timed out");
-        }
+        if (err.name === "AbortError") console.warn("Auth check timed out");
         setServerDown(true);
       } finally {
-        if (!didCancel) {
-          setAuthLoading(false);
-        }
+        if (!didCancel) setAuthLoading(false);
       }
     };
-
     verify();
-
     return () => {
       didCancel = true;
       clearTimeout(timeoutId);
@@ -201,7 +196,6 @@ function App() {
     if (!user) return;
     loadConversations();
     loadModels();
-
     const savedId = localStorage.getItem("currentConversationId");
     if (savedId) {
       const savedMessages = localStorage.getItem(`messages_${savedId}`);
@@ -219,7 +213,6 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Persist current conversation ID
   useEffect(() => {
     if (currentConversationId) {
       localStorage.setItem("currentConversationId", currentConversationId);
@@ -326,8 +319,53 @@ function App() {
     setLoading(false);
   };
 
+  // Copy message to clipboard
+  const copyMessage = async (content: string, msgId: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedId(msgId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // fallback
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopiedId(msgId);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
+
+  // Edit a user message – populate textarea
+  const editMessage = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setInput(msg.content);
+    textareaRef.current?.focus();
+  };
+
+  // Cancel editing
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInput("");
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading || !token) return;
+
+    if (editingMessageId) {
+      // Editing mode: remove the old message and all messages after it,
+      // then send the edited message as new
+      const editIndex = messages.findIndex((m) => m.id === editingMessageId);
+      if (editIndex !== -1) {
+        // Keep only messages before the edited one
+        const truncated = messages.slice(0, editIndex);
+        setMessages(truncated);
+      }
+      setEditingMessageId(null);
+    }
+
     setLoading(true);
     setError(null);
 
@@ -366,7 +404,7 @@ function App() {
       }
     } catch (err: any) {
       if (err.name === "AbortError") {
-        // silently stopped
+        /* silently stopped */
       } else {
         setError("Failed to send message. Please try again.");
       }
@@ -383,6 +421,7 @@ function App() {
     setMessages([]);
     setInput("");
     setError(null);
+    setEditingMessageId(null);
   };
 
   const deleteConversation = async (id: string) => {
@@ -418,6 +457,10 @@ function App() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+    if (e.key === "Escape" && editingMessageId) {
+      e.preventDefault();
+      cancelEdit();
     }
   };
 
@@ -509,15 +552,7 @@ function App() {
 
       {/* Sidebar */}
       <aside
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50
-          flex flex-col
-          bg-[#1a1d21] border-r border-[#2a2d33]
-          transition-all duration-300
-          ${sidebarCollapsed && !mobileSidebarOpen ? "w-16" : "w-64"}
-          ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          lg:translate-x-0
-        `}
+        className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-[#1a1d21] border-r border-[#2a2d33] transition-all duration-300 ${sidebarCollapsed && !mobileSidebarOpen ? "w-16" : "w-64"} ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}
       >
         <div
           className={`flex items-center h-16 px-4 border-b border-[#2a2d33] ${sidebarCollapsed ? "justify-center" : "justify-between"}`}
@@ -578,7 +613,6 @@ function App() {
           )}
         </div>
 
-        {/* Server down warning */}
         {serverDown && (
           <div className="px-3 py-2 text-xs text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 rounded-lg mx-3 mb-2">
             ⚠️ Server unreachable – using cached data
@@ -615,11 +649,7 @@ function App() {
                 loadConversation(conv.id);
                 setMobileSidebarOpen(false);
               }}
-              className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer mb-1 transition ${
-                conv.id === currentConversationId
-                  ? "bg-[#2a2d33] border-l-2 border-[#00cfff]"
-                  : "hover:bg-[#24272c]"
-              } ${sidebarCollapsed ? "justify-center px-1" : ""}`}
+              className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer mb-1 transition ${conv.id === currentConversationId ? "bg-[#2a2d33] border-l-2 border-[#00cfff]" : "hover:bg-[#24272c]"} ${sidebarCollapsed ? "justify-center px-1" : ""}`}
             >
               {sidebarCollapsed ? (
                 <MessageCircle size={18} className="text-gray-400" />
@@ -665,6 +695,7 @@ function App() {
         <div className="flex-1 flex flex-col min-h-0">
           {showDashboard && stats ? (
             <div className="p-6 space-y-6 overflow-y-auto">
+              {/* Dashboard content unchanged */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <BarChart3 size={24} /> Analytics Dashboard
@@ -768,11 +799,7 @@ function App() {
                           <td className="px-4 py-2">{log.total_tokens}</td>
                           <td className="px-4 py-2">
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                                log.status === "success"
-                                  ? "bg-green-900/30 text-green-400"
-                                  : "bg-red-900/30 text-red-400"
-                              }`}
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${log.status === "success" ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"}`}
                             >
                               {log.status === "success" ? (
                                 <CheckCircle size={14} />
@@ -794,14 +821,15 @@ function App() {
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                   <div className="text-center mt-20 text-gray-400">
-                    <img src="/relay.png" alt="Relay" className="w-40 mx-auto mb-4"/>
+                    <img
+                      src="/relay.png"
+                      alt="Relay"
+                      className="w-40 mx-auto mb-4"
+                    />
                     <h1 className="text-2xl font-bold text-white mb-2">
                       Hi, {user.username}
                     </h1>
-                    <p>
-                      Chat with AI using Groq's fast
-                      inference
-                    </p>
+                    <p>Chat with AI using Groq's fast inference</p>
                     <p className="mt-2">
                       Current model:{" "}
                       <strong className="text-[#00cfff]" title={selectedModel}>
@@ -816,13 +844,40 @@ function App() {
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[85%] sm:max-w-[70%] px-4 py-3 rounded-2xl break-words ${
-                        msg.role === "user"
-                          ? "bg-[#00cfff]/20 text-white rounded-br-sm"
-                          : "bg-[#24272c] text-white rounded-bl-sm shadow"
-                      }`}
+                      className={`max-w-[85%] sm:max-w-[70%] ${msg.role === "user" ? "flex flex-col items-end" : "flex flex-col items-start"}`}
                     >
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <div
+                        className={`px-4 py-3 rounded-2xl break-words ${msg.role === "user" ? "bg-[#00cfff]/20 text-white rounded-br-sm" : "bg-[#24272c] text-white rounded-bl-sm shadow"}`}
+                      >
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                      {/* Action buttons */}
+                      <div
+                        className={`flex items-center gap-1 mt-1 px-1 ${msg.role === "user" ? "flex-row" : "flex-row"}`}
+                      >
+                        {/* Copy button */}
+                        <button
+                          onClick={() => copyMessage(msg.content, msg.id)}
+                          className="p-1 rounded hover:bg-[#2a2d33] text-gray-500 hover:text-gray-300 transition"
+                          title="Copy message"
+                        >
+                          {copiedId === msg.id ? (
+                            <Check size={14} className="text-green-400" />
+                          ) : (
+                            <Copy size={14} />
+                          )}
+                        </button>
+                        {/* Edit button – only on user messages */}
+                        {msg.role === "user" && (
+                          <button
+                            onClick={() => editMessage(msg)}
+                            className="p-1 rounded hover:bg-[#2a2d33] text-gray-500 hover:text-gray-300 transition"
+                            title="Edit message"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -861,23 +916,34 @@ function App() {
                 </div>
               )}
 
-              {/* Input area with CUSTOM MODEL DROPDOWN */}
+              {/* Input area */}
               <div className="p-3 sm:p-4 border-t border-[#2a2d33] bg-[#1a1d21]">
                 <div className="flex flex-col gap-2">
-                  {/* Custom Model Selector */}
+                  {/* Editing label */}
+                  {editingMessageId && (
+                    <div className="flex items-center gap-2 text-s text-[#00cfff]">
+                      <Pencil size={12} />
+                      <span>Editing message</span>
+                      <button
+                        onClick={cancelEdit}
+                        className="ml-auto text-gray-400 hover:text-white"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {/* Model Selector */}
                   <div className="relative w-48 sm:w-56" ref={modelDropdownRef}>
                     <button
                       onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-                      className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
+                      className="w-full flex items-center justify-between bg-[#24272c] border border-[#2a2d33] text-white text-s rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
                     >
                       <span className="truncate">
                         {MODEL_NAMES[selectedModel] || selectedModel}
                       </span>
                       <ChevronDown
                         size={12}
-                        className={`ml-2 transition-transform ${
-                          modelDropdownOpen ? "rotate-180" : ""
-                        }`}
+                        className={`ml-2 transition-transform ${modelDropdownOpen ? "rotate-180" : ""}`}
                       />
                     </button>
                     {modelDropdownOpen && (
@@ -889,11 +955,7 @@ function App() {
                               setSelectedModel(m.model);
                               setModelDropdownOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 text-xs hover:bg-[#24272c] transition ${
-                              m.model === selectedModel
-                                ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]"
-                                : "text-gray-300"
-                            }`}
+                            className={`w-full text-left px-3 py-2 text-s hover:bg-[#24272c] transition ${m.model === selectedModel ? "bg-[#24272c] border-l-2 border-[#00cfff] text-[#00cfff]" : "text-gray-300"}`}
                             title={m.model}
                           >
                             {MODEL_NAMES[m.model] || m.model}
@@ -914,10 +976,7 @@ function App() {
                       rows={1}
                       disabled={loading}
                       className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
-                      style={{
-                        minHeight: "44px",
-                        maxHeight: "224px", // ~8 rows
-                      }}
+                      style={{ minHeight: "44px", maxHeight: "224px" }}
                     />
                     {loading ? (
                       <button
