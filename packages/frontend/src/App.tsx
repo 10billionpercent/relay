@@ -236,12 +236,6 @@ function App() {
         {showDashboard && stats ? (
           <div className="dashboard">
             <div className="dashboard-header">
-              <button
-                onClick={() => setShowDashboard(false)}
-                className="back-btn"
-              >
-                ← Back to Chat
-              </button>
               <h2>📊 Analytics Dashboard</h2>
               <button onClick={loadStats} className="refresh-btn">
                 🔄 Refresh
