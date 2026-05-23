@@ -1149,16 +1149,16 @@ function App() {
                       placeholder={`Message ${MODEL_NAMES[selectedModel] || selectedModel}`}
                       rows={1}
                       disabled={loading}
-                      className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
+                      className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-s"
                       style={{ minHeight: "44px", maxHeight: "224px" }}
                     />
                     {loading ? (
                       <button
                         onClick={stopGenerating}
-                        className="flex-shrink-0 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                        className="flex-shrink-0 p-3 bg-[#00cfff] text-[#111315] rounded-lg hover:bg-[#00b5e6] transition"
                         title="Stop generating"
                       >
-                        <Square size={16} fill="currentColor" />
+                        <Square size={16} fill="currentColor"/>
                       </button>
                     ) : (
                       <button
