@@ -156,7 +156,7 @@ export default function ChatView({
             {loading ? (
               <button
                 onClick={onStop}
-                className="flex-shrink-0 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                className="flex-shrink-0 p-3 bg-[#00cfff] text-[#111315] rounded-lg hover:bg-[#00b5e6] transition"
                 title="Stop generating"
               >
                 <Square size={16} fill="currentColor" />
