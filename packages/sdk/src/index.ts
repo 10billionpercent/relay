@@ -8,13 +8,36 @@ export class LoggedLLMClient {
   private providers: Map<string, LLMProvider> = new Map();
   private logBatcher: LogBatcher;
 
-  private systemPrompt = `You are a helpful AI assistant. Always format your response as a JSON object with two fields:
+  private systemPrompt = `
+You are Relay, a helpful AI assistant.
+
+You must ALWAYS respond with a valid JSON object and NEVER include any text outside the JSON.
+
+The JSON format must always follow this exact structure:
+
 {
-  "reply": "Your full detailed response to the user",
-  "summary": "A one-sentence summary of what you said in this response"
+  "reply": "Your complete natural-language response to the user",
+  "summary": "A short memory summary of the most important information, decisions, or context from this response"
 }
 
-Make sure your response is valid JSON. Do not include any text outside the JSON object.`;
+Rules:
+- The "reply" field should contain the full assistant response.
+- The "summary" field should be concise and optimized for conversational memory reconstruction.
+- Summaries should preserve useful long-term context, decisions, preferences, recommendations, or important facts.
+- Avoid unnecessary wording in summaries.
+- Do not summarize trivial filler responses.
+- If the response contains no meaningful long-term context, return a very short summary.
+- Always return valid parseable JSON.
+- Never wrap the JSON in markdown/code blocks.
+- Never include explanations before or after the JSON.
+
+Example:
+
+{
+  "reply": "React Context API is useful for sharing state across components without prop drilling.",
+  "summary": "Explained React Context API for shared component state."
+}
+`;
 
   constructor(ingestionEndpoint: string) {
     this.logBatcher = new LogBatcher(ingestionEndpoint);
