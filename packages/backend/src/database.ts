@@ -123,6 +123,7 @@ export async function initializeDatabase(
 
   const wrapper = new DatabaseWrapper(sqlDb, DB_PATH);
 
+  // Create tables (if not exist)
   wrapper.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -177,14 +178,16 @@ export async function initializeDatabase(
     CREATE INDEX IF NOT EXISTS idx_logs_status ON inference_logs(status, timestamp DESC);
   `);
 
-  // Migration: add user_id column if not exists (safe to run multiple times)
+  // Migrations: add missing columns if they don't exist (safe to run multiple times)
   try {
     wrapper.exec(
       `ALTER TABLE conversations ADD COLUMN user_id TEXT REFERENCES users(id);`,
     );
-  } catch (e) {
-    // column already exists, ignore
-  }
+  } catch (e) {}
+
+  try {
+    wrapper.exec(`ALTER TABLE messages ADD COLUMN summary TEXT;`);
+  } catch (e) {}
 
   return wrapper;
 }

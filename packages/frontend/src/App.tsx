@@ -50,10 +50,12 @@ function App() {
     localStorage.getItem("token"),
   );
   const [user, setUser] = useState<UserData | null>(null);
+  const [authLoading, setAuthLoading] = useState(!!token);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [serverDown, setServerDown] = useState(false); // NEW: warn if backend unreachable
 
   // App state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -80,25 +82,88 @@ function App() {
       "Untitled"
     : "New Conversation";
 
-  // Verify token on mount
+  // Persist messages in localStorage whenever they change
   useEffect(() => {
-    if (token) {
-      fetch(`${API_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.id) setUser({ id: data.id, username: data.username });
-          else logout();
-        })
-        .catch(() => logout());
+    if (currentConversationId && messages.length > 0) {
+      localStorage.setItem(
+        `messages_${currentConversationId}`,
+        JSON.stringify(messages),
+      );
     }
+  }, [messages, currentConversationId]);
+
+  // Verify token on mount with intelligent error handling
+  useEffect(() => {
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let didCancel = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const verify = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (didCancel) return;
+
+        // Only treat 401 as invalid token – keep user logged in for other errors
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          setToken(null);
+          setUser(null);
+          setServerDown(false);
+        } else if (res.ok) {
+          const data = await res.json();
+          setUser({ id: data.id, username: data.username });
+          setServerDown(false);
+        } else {
+          // Unexpected status – stay logged in but warn
+          setServerDown(true);
+        }
+      } catch (err: any) {
+        if (err.name === "AbortError") {
+          console.warn("Auth check timed out");
+        }
+        // Network error – keep token, show warning
+        setServerDown(true);
+      } finally {
+        if (!didCancel) {
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    verify();
+
+    return () => {
+      didCancel = true;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [token]);
 
+  // When user is set, load conversations and resume last conversation
   useEffect(() => {
-    if (user) {
-      loadConversations();
-      loadModels();
+    if (!user) return;
+    loadConversations();
+    loadModels();
+
+    const savedId = localStorage.getItem("currentConversationId");
+    if (savedId) {
+      // Show cached messages instantly
+      const savedMessages = localStorage.getItem(`messages_${savedId}`);
+      if (savedMessages) {
+        try {
+          setMessages(JSON.parse(savedMessages));
+        } catch {}
+      }
+      setCurrentConversationId(savedId);
+      loadConversation(savedId); // fetch fresh data
     }
   }, [user]);
 
@@ -106,13 +171,24 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Persist current conversation ID
+  useEffect(() => {
+    if (currentConversationId) {
+      localStorage.setItem("currentConversationId", currentConversationId);
+    } else {
+      localStorage.removeItem("currentConversationId");
+    }
+  }, [currentConversationId]);
+
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("currentConversationId");
     setToken(null);
     setUser(null);
     setConversations([]);
     setCurrentConversationId(null);
     setMessages([]);
+    setServerDown(false);
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -187,6 +263,7 @@ function App() {
       if (data.messages) {
         setMessages(data.messages);
         setCurrentConversationId(id);
+        localStorage.setItem(`messages_${id}`, JSON.stringify(data.messages));
       }
     } catch (err) {
       console.error("Failed to load conversation:", err);
@@ -217,7 +294,6 @@ function App() {
     const payload: any = { message: input, model: selectedModel };
     if (currentConversationId) payload.conversationId = currentConversationId;
 
-    // Create abort controller
     abortControllerRef.current = new AbortController();
 
     try {
@@ -242,7 +318,7 @@ function App() {
       }
     } catch (err: any) {
       if (err.name === "AbortError") {
-        // User stopped generation – silently finish
+        // silently stopped
       } else {
         setError("Failed to send message. Please try again.");
       }
@@ -268,6 +344,7 @@ function App() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+      localStorage.removeItem(`messages_${id}`);
       if (currentConversationId === id) newConversation();
       loadConversations();
     } catch (err) {
@@ -296,7 +373,18 @@ function App() {
     }
   };
 
-  // Auth screen
+  // ---- Loading screen while checking auth ----
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#111315]">
+        <div className="text-white text-lg animate-pulse">
+          Verifying session…
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Auth screen ----
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#111315] p-4">
@@ -383,7 +471,6 @@ function App() {
           lg:translate-x-0
         `}
       >
-        {/* Sidebar header */}
         <div
           className={`flex items-center h-16 px-4 border-b border-[#2a2d33] ${sidebarCollapsed ? "justify-center" : "justify-between"}`}
         >
@@ -417,7 +504,6 @@ function App() {
           </button>
         </div>
 
-        {/* User info */}
         <div
           className={`px-4 py-3 border-b border-[#2a2d33] ${sidebarCollapsed ? "flex flex-col items-center" : ""}`}
         >
@@ -444,7 +530,13 @@ function App() {
           )}
         </div>
 
-        {/* Action buttons */}
+        {/* Server down warning */}
+        {serverDown && (
+          <div className="px-3 py-2 text-xs text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 rounded-lg mx-3 mb-2">
+            ⚠️ Server unreachable – using cached data
+          </div>
+        )}
+
         <div className="p-3 space-y-2">
           <button
             onClick={newConversation}
@@ -462,27 +554,6 @@ function App() {
           </button>
         </div>
 
-        {/* Model selector */}
-        {!sidebarCollapsed && (
-          <div className="px-3 mb-2">
-            <label className="text-xs uppercase text-gray-400 block mb-1">
-              Model
-            </label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="w-full bg-[#24272c] border border-[#2a2d33] text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-[#00cfff]"
-            >
-              {models.map((m) => (
-                <option key={m.model} value={m.model}>
-                  {m.model}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Conversations list */}
         <div className="flex-1 overflow-y-auto px-3">
           {!sidebarCollapsed && (
             <h3 className="text-xs uppercase text-gray-400 mb-2 mt-2">
@@ -531,7 +602,6 @@ function App() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header bar */}
         <div className="flex items-center h-16 px-4 border-b border-[#2a2d33] bg-[#1a1d21] lg:px-6">
           <button
             onClick={() => setMobileSidebarOpen(true)}
@@ -544,7 +614,6 @@ function App() {
           </h1>
         </div>
 
-        {/* Dashboard or Chat view */}
         <div className="flex-1 flex flex-col min-h-0">
           {showDashboard && stats ? (
             <div className="p-6 space-y-6 overflow-y-auto">
@@ -669,7 +738,6 @@ function App() {
             </div>
           ) : (
             <>
-              {/* Messages area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                   <div className="text-center mt-20 text-gray-400">
@@ -680,12 +748,6 @@ function App() {
                     <p>
                       Start a conversation with the AI using Groq's fast
                       inference
-                    </p>
-                    <p className="mt-2">
-                      Current model:{" "}
-                      <strong className="text-[#00cfff]">
-                        {selectedModel}
-                      </strong>
                     </p>
                   </div>
                 )}
@@ -725,7 +787,6 @@ function App() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Error banner */}
               {error && (
                 <div className="bg-red-600 text-white px-4 py-3 flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2 min-w-0">
@@ -741,35 +802,49 @@ function App() {
                 </div>
               )}
 
-              {/* Input bar */}
-              <div className="p-3 sm:p-4 border-t border-[#2a2d33] bg-[#1a1d21] flex items-end gap-2 sm:gap-3">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type your message..."
-                  rows={2}
-                  disabled={loading}
-                  className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
-                />
-                {loading ? (
-                  <button
-                    onClick={stopGenerating}
-                    className="flex-shrink-0 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-                    title="Stop generating"
+              <div className="p-3 sm:p-4 border-t border-[#2a2d33] bg-[#1a1d21]">
+                <div className="flex flex-col gap-2">
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="w-48 sm:w-56 bg-[#24272c] border border-[#2a2d33] text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#00cfff]"
                   >
-                    <Square size={16} fill="currentColor" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={sendMessage}
-                    disabled={!input.trim()}
-                    className="flex-shrink-0 p-3 bg-[#00cfff] text-[#111315] rounded-lg hover:bg-[#00b5e6] disabled:opacity-50 transition"
-                    title="Send message"
-                  >
-                    <Send size={16} />
-                  </button>
-                )}
+                    {models.map((m) => (
+                      <option key={m.model} value={m.model}>
+                        {m.model}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Type your message..."
+                      rows={2}
+                      disabled={loading}
+                      className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
+                    />
+                    {loading ? (
+                      <button
+                        onClick={stopGenerating}
+                        className="flex-shrink-0 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                        title="Stop generating"
+                      >
+                        <Square size={16} fill="currentColor" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={sendMessage}
+                        disabled={!input.trim()}
+                        className="flex-shrink-0 p-3 bg-[#00cfff] text-[#111315] rounded-lg hover:bg-[#00b5e6] disabled:opacity-50 transition"
+                        title="Send message"
+                      >
+                        <Send size={16} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </>
           )}

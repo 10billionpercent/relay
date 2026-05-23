@@ -11,7 +11,6 @@ export interface LLMProvider {
   ): Promise<LLMResponse>;
 }
 
-// Models containing these keywords are classifiers / non‑chat models
 const NON_CHAT_KEYWORDS = [
   "prompt-guard",
   "safeguard",
@@ -74,6 +73,17 @@ export class GroqProvider implements LLMProvider {
         temperature: 0.7,
       });
 
+      let content = completion.choices[0]?.message?.content || "";
+
+      // If the model returned nothing, provide a fallback
+      if (!content.trim()) {
+        console.warn(
+          `[Groq] Empty response from model ${model}. Using fallback message.`,
+        );
+        content =
+          "I'm sorry, I couldn't generate a response. Please try again.";
+      }
+
       const usage: TokenUsage = {
         prompt: completion.usage?.prompt_tokens || 0,
         completion: completion.usage?.completion_tokens || 0,
@@ -81,7 +91,7 @@ export class GroqProvider implements LLMProvider {
       };
 
       return {
-        content: completion.choices[0]?.message?.content || "",
+        content,
         model: completion.model || model,
         provider: this.name,
         tokenUsage: usage,

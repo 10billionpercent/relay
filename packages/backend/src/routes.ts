@@ -73,10 +73,22 @@ async function authMiddleware(c: any, next: any) {
   await next();
 }
 
+// Helper to map snake_case DB rows to camelCase Message objects
+function mapMessage(row: any): Message {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    role: row.role,
+    content: row.content,
+    summary: row.summary,
+    timestamp: row.timestamp,
+  };
+}
+
 export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   const app = new Hono();
 
-  // Inject db into context for middleware access
+  // Inject db into context
   app.use("*", async (c, next) => {
     c.set("db", db);
     await next();
@@ -106,7 +118,6 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
     return c.json(models);
   });
 
-  // ----- Auth routes -----
   // ----- Auth routes -----
   app.post("/api/auth/signup", async (c) => {
     try {
@@ -251,12 +262,13 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         );
       }
 
-      // Get conversation history
-      const history = db
+      // Get conversation history and map to camelCase
+      const historyRows = db
         .prepare(
           "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
         )
-        .all(conversation.id) as Message[];
+        .all(conversation.id);
+      const history: Message[] = historyRows.map(mapMessage);
 
       // Create user message
       const userMessage: Message = {
@@ -284,16 +296,27 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         validated.model,
       );
 
+      // Include model in the assistant message
+      const assistantMsgWithModel: Message = {
+        ...assistantMessage,
+        model: validated.model,
+      };
+
+      if (!assistantMsgWithModel.content.trim()) {
+        assistantMsgWithModel.content =
+          "I'm sorry, I couldn't generate a response. Please try again.";
+      }
+
       // Store assistant message
       db.prepare(
         "INSERT INTO messages (id, conversation_id, role, content, summary, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
       ).run(
-        assistantMessage.id,
-        assistantMessage.conversationId,
-        assistantMessage.role,
-        assistantMessage.content,
-        assistantMessage.summary || null,
-        assistantMessage.timestamp,
+        assistantMsgWithModel.id,
+        assistantMsgWithModel.conversationId,
+        assistantMsgWithModel.role,
+        assistantMsgWithModel.content,
+        assistantMsgWithModel.summary || null,
+        assistantMsgWithModel.timestamp,
       );
 
       // Store inference log
@@ -329,7 +352,7 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       );
 
       const response: ChatResponse = {
-        message: assistantMessage,
+        message: assistantMsgWithModel,
         conversation,
         log,
       };
@@ -374,11 +397,12 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
       return c.json({ error: "Conversation not found" }, 404);
     }
 
-    const messages = db
+    const messageRows = db
       .prepare(
         "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
       )
-      .all(id) as Message[];
+      .all(id);
+    const messages: Message[] = messageRows.map(mapMessage);
 
     const logs = db
       .prepare(
@@ -429,7 +453,7 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
     return c.json({ success: true });
   });
 
-  // Ingestion endpoint (protected, but no user filtering needed here)
+  // Ingestion endpoint
   app.post("/api/ingest/batch", async (c) => {
     try {
       const body = (await c.req.json()) as LogBatchRequest;
@@ -485,7 +509,7 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
     }
   });
 
-  // Dashboard stats (could be filtered by user, but we'll keep global for now)
+  // Dashboard stats
   app.get("/api/stats", (c) => {
     try {
       const stats = {

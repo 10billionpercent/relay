@@ -11,6 +11,7 @@ export interface Message {
   content: string;
   summary?: string;
   timestamp: number;
+  model?: string; // NEW: the model used to generate this assistant message
 }
 
 export interface Conversation {
