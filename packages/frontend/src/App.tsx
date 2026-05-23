@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import {
+  User,
+  LogOut,
+  Plus,
+  BarChart3,
+  Trash2,
+  MessageCircle,
+  Bot,
+  UserCircle,
+  AlertTriangle,
+  Send,
+  RefreshCw,
+  X,
+  CheckCircle,
+  XCircle,
+} from "lucide-react";
 import "./App.css";
 
 interface Message {
@@ -20,7 +36,7 @@ interface Model {
   model: string;
 }
 
-interface User {
+interface UserData {
   id: string;
   username: string;
 }
@@ -32,7 +48,7 @@ function App() {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("token"),
   );
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserData | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -112,20 +128,16 @@ function App() {
       const data = await res.json();
 
       if (data.error) {
-        // Smart error handling with auto‑switch
         if (data.code === "USER_NOT_FOUND") {
-          // User tried to login but doesn't exist → switch to signup
           setAuthError("No account found. Please sign up.");
           setAuthMode("signup");
         } else if (data.code === "USERNAME_TAKEN") {
-          // User tried to signup but username taken → switch to login
           setAuthError("Username already taken. Please log in.");
           setAuthMode("login");
         } else {
           setAuthError(data.error);
         }
       } else {
-        // Success
         localStorage.setItem("token", data.token);
         setToken(data.token);
         setUser(data.user);
@@ -136,7 +148,7 @@ function App() {
       setAuthError("Network error. Please try again.");
     }
   };
-  
+
   const loadModels = async () => {
     try {
       const res = await fetch(`${API_URL}/api/models`);
@@ -325,16 +337,25 @@ function App() {
     <div className="app">
       <div className="sidebar">
         <div className="user-info">
-          <span>👤 {user.username}</span>
+          <span>
+            <User
+              size={16}
+              style={{ marginRight: 6, verticalAlign: "middle" }}
+            />
+            {user.username}
+          </span>
           <button onClick={logout} className="logout-btn">
+            <LogOut size={14} style={{ marginRight: 4 }} />
             Logout
           </button>
         </div>
         <button onClick={newConversation} className="new-chat-btn">
-          ✨ New Chat
+          <Plus size={16} style={{ marginRight: 6 }} />
+          New Chat
         </button>
         <button onClick={loadStats} className="stats-btn">
-          📊 Dashboard
+          <BarChart3 size={16} style={{ marginRight: 6 }} />
+          Dashboard
         </button>
 
         <div className="model-selector">
@@ -369,7 +390,7 @@ function App() {
                 }}
                 title="Delete conversation"
               >
-                🗑️
+                <Trash2 size={16} />
               </button>
             </div>
           ))}
@@ -383,9 +404,16 @@ function App() {
         {showDashboard && stats ? (
           <div className="dashboard">
             <div className="dashboard-header">
-              <h2>📊 Analytics Dashboard</h2>
+              <h2>
+                <BarChart3
+                  size={20}
+                  style={{ marginRight: 8, verticalAlign: "middle" }}
+                />
+                Analytics Dashboard
+              </h2>
               <button onClick={loadStats} className="refresh-btn">
-                🔄 Refresh
+                <RefreshCw size={14} style={{ marginRight: 4 }} />
+                Refresh
               </button>
             </div>
 
@@ -464,6 +492,14 @@ function App() {
                         <td>{log.total_tokens}</td>
                         <td>
                           <span className={`status-badge ${log.status}`}>
+                            {log.status === "success" ? (
+                              <CheckCircle
+                                size={14}
+                                style={{ marginRight: 4 }}
+                              />
+                            ) : (
+                              <XCircle size={14} style={{ marginRight: 4 }} />
+                            )}
                             {log.status}
                           </span>
                         </td>
@@ -483,7 +519,9 @@ function App() {
             <div className="messages-container">
               {messages.length === 0 && (
                 <div className="welcome">
-                  <div className="welcome-icon">💬</div>
+                  <div className="welcome-icon">
+                    <MessageCircle size={48} />
+                  </div>
                   <h1>AI Chat Assistant</h1>
                   <p>
                     Start a conversation with the AI using Groq's fast inference
@@ -496,7 +534,11 @@ function App() {
               {messages.map((msg) => (
                 <div key={msg.id} className={`message ${msg.role}`}>
                   <div className="message-avatar">
-                    {msg.role === "user" ? "👤" : "🤖"}
+                    {msg.role === "user" ? (
+                      <UserCircle size={20} />
+                    ) : (
+                      <Bot size={20} />
+                    )}
                   </div>
                   <div className="message-content">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -505,7 +547,9 @@ function App() {
               ))}
               {loading && (
                 <div className="message assistant">
-                  <div className="message-avatar">🤖</div>
+                  <div className="message-avatar">
+                    <Bot size={20} />
+                  </div>
                   <div className="message-content">
                     <div className="typing-indicator">
                       <span></span>
@@ -520,8 +564,11 @@ function App() {
 
             {error && (
               <div className="error-banner">
-                <span>⚠️ {error}</span>
-                <button onClick={() => setError(null)}>×</button>
+                <AlertTriangle size={16} style={{ marginRight: 8 }} />
+                <span>{error}</span>
+                <button onClick={() => setError(null)}>
+                  <X size={16} />
+                </button>
               </div>
             )}
 
@@ -539,7 +586,11 @@ function App() {
                 disabled={loading || !input.trim()}
                 className="send-btn"
               >
-                {loading ? "..." : "Send"}
+                {loading ? (
+                  "..."
+                ) : (
+                  <Send size={16} style={{ marginRight: 6 }} />
+                )}
               </button>
             </div>
           </>
