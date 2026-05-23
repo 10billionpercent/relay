@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   backend:
@@ -9,7 +9,6 @@ services:
       - PORT=3001
       - DB_PATH=/app/data/chatbot.db
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - ./data:/app/data
     command: npm run dev:backend
@@ -20,4 +19,6 @@ services:
       - "5173:5173"
     depends_on:
       - backend
+    environment:
+      - VITE_API_URL=http://backend:3001
     command: npm run dev:frontend

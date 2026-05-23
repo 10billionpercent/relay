@@ -291,6 +291,32 @@ npm run db:migrate:local
 
 ---
 
+### Using Docker
+
+You can also run the entire stack with Docker Compose. A Dockerfile and docker-compose.yml are already included in the repository.
+
+#### Create .env with your Groq API key
+
+```
+echo "GROQ_API_KEY=gsk_your_key_here" > .env
+```
+
+#### Build and start both services
+
+```
+docker-compose up --build
+```
+
+Open `http://localhost:5173` for the frontend. The backend is available at `http://localhost:3001`.
+
+#### Running database migrations locally
+
+```
+npm run db:migrate:local
+```
+
+---
+
 ## ☁️ Deployment
 
 Relay is deployed entirely on Cloudflare's infrastructure — no servers to manage, no cold starts.
