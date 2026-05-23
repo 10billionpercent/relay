@@ -22,6 +22,11 @@ const NON_CHAT_KEYWORDS = [
   "orpheus",
 ];
 
+// Remove thinking blocks from reasoning models
+function stripThinking(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
+
 export class GroqProvider implements LLMProvider {
   name = "groq";
   models: string[] = [];
@@ -75,7 +80,9 @@ export class GroqProvider implements LLMProvider {
 
       let content = completion.choices[0]?.message?.content || "";
 
-      // If the model returned nothing, provide a fallback
+      // Strip thinking tags from reasoning models
+      content = stripThinking(content);
+
       if (!content.trim()) {
         console.warn(
           `[Groq] Empty response from model ${model}. Using fallback message.`,
