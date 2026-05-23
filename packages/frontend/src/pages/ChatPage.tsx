@@ -117,7 +117,11 @@ export default function ChatPage(props: ChatPageProps) {
 
         <div className="flex-1 flex flex-col min-h-0">
           {props.showDashboard && props.stats ? (
-            <Dashboard stats={props.stats} onRefresh={props.onDashboard} />
+            <Dashboard
+              stats={props.stats}
+              onRefresh={props.onDashboard}
+              isGuest={props.user?.id === "guest"}
+            />
           ) : (
             <ChatView
               setSelectedModel={props.setSelectedModel}

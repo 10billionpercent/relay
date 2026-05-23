@@ -465,6 +465,45 @@ export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
     }
   });
 
+  // Guest chat – no authentication, no persistence
+  app.post("/api/chat/guest", async (c) => {
+    try {
+      const body = await c.req.json();
+      const validated = chatSchema.parse(body);
+
+      // Just call the LLM, no DB writes
+      const userMessage: Message = {
+        id: uuidv4(),
+        conversationId: "guest",
+        role: "user",
+        content: validated.message,
+        timestamp: Date.now(),
+      };
+
+      const { message } = await llmClient.chat([userMessage], validated.model);
+
+      return c.json({
+        message: {
+          ...message,
+          id: uuidv4(),
+          conversationId: "guest",
+          timestamp: Date.now(),
+        },
+      });
+    } catch (error) {
+      console.error("Guest chat error:", error);
+      if (error instanceof z.ZodError)
+        return c.json({ error: "Invalid request", details: error.errors }, 400);
+      return c.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Internal server error",
+        },
+        500,
+      );
+    }
+  });
+
   // Get all conversations for user
   app.get("/api/conversations", async (c) => {
     const user = c.get("user") as User;

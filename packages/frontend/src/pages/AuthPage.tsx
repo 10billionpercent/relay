@@ -7,9 +7,10 @@ interface AuthPageProps {
     password: string,
     setError: (e: string) => void,
   ) => void;
+  onGuest: () => void;
 }
 
-export default function AuthPage({ onAuth }: AuthPageProps) {
+export default function AuthPage({ onAuth, onGuest }: AuthPageProps) {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -84,6 +85,12 @@ export default function AuthPage({ onAuth }: AuthPageProps) {
             </>
           )}
         </p>
+        <button
+          onClick={onGuest}
+          className="mt-4 w-full py-3 bg-[#24272c] text-white font-semibold rounded-lg hover:bg-[#2a2d33] transition"
+        >
+          Continue as Guest
+        </button>
       </div>
     </div>
   );

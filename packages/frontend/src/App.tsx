@@ -13,6 +13,64 @@ import { API_URL } from "./constants";
 import AuthPage from "./pages/AuthPage";
 import ChatPage from "./pages/ChatPage";
 
+// ─── sessionStorage helpers for guest mode ──
+const GUEST_USER: UserData = { id: "guest", username: "Guest" };
+
+function getGuestConversations(): Conversation[] {
+  try {
+    return JSON.parse(sessionStorage.getItem("guestConversations") || "[]");
+  } catch {
+    return [];
+  }
+}
+function setGuestConversations(convs: Conversation[]) {
+  sessionStorage.setItem("guestConversations", JSON.stringify(convs));
+}
+function getGuestMessages(convId: string): Message[] {
+  try {
+    return JSON.parse(
+      sessionStorage.getItem(`guestMessages_${convId}`) || "[]",
+    );
+  } catch {
+    return [];
+  }
+}
+function setGuestMessages(convId: string, msgs: Message[]) {
+  sessionStorage.setItem(`guestMessages_${convId}`, JSON.stringify(msgs));
+}
+
+// Guest‑side dashboard stats builder
+function computeGuestStats() {
+  const convs = getGuestConversations();
+  let totalMessages = 0;
+  const modelCount: Record<string, number> = {};
+
+  convs.forEach((c) => {
+    const msgs = getGuestMessages(c.id);
+    totalMessages += msgs.length;
+    msgs.forEach((m) => {
+      if (m.role === "assistant" && (m as any).model) {
+        const mdl = (m as any).model;
+        modelCount[mdl] = (modelCount[mdl] || 0) + 1;
+      }
+    });
+  });
+
+  const modelDistribution = Object.entries(modelCount)
+    .map(([model, count]) => ({ model, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    totalConversations: { count: convs.length },
+    totalMessages: { count: totalMessages },
+    avgLatency: { avg: null },
+    errorRate: { rate: 0 },
+    tokenUsage: { total_prompt: 0, total_completion: 0, total_tokens: 0 },
+    modelDistribution,
+    recentLogs: [],
+  };
+}
+
 // ─── Root component ──────────────────────
 function App() {
   return (
@@ -32,14 +90,20 @@ function AppRoutes() {
     localStorage.getItem("token"),
   );
   const [user, setUser] = useState<UserData | null>(() => {
+    if (sessionStorage.getItem("isGuest") === "true") return GUEST_USER;
     const stored = localStorage.getItem("user");
     return stored ? JSON.parse(stored) : null;
   });
   const [serverDown, setServerDown] = useState(false);
   const serverDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isGuest = user?.id === "guest";
+
   // App state
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    if (isGuest) return getGuestConversations();
+    return [];
+  });
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -70,10 +134,13 @@ function AppRoutes() {
   >(null);
   const loadConversationAbortRef = useRef<AbortController | null>(null);
 
-  // Current conversation ID (synced with URL param)
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
-  >(null);
+  >(() => {
+    if (isGuest)
+      return sessionStorage.getItem("guestCurrentConversationId") || null;
+    return localStorage.getItem("currentConversationId") || null;
+  });
 
   // Sync URL param → state
   const SyncConversationId = () => {
@@ -125,15 +192,14 @@ function AppRoutes() {
   }, []);
 
   useEffect(() => {
-    if (currentConversationId && messages.length > 0)
-      localStorage.setItem(
-        `messages_${currentConversationId}`,
-        JSON.stringify(messages),
-      );
-  }, [messages, currentConversationId]);
+    if (isGuest && currentConversationId && messages.length > 0) {
+      setGuestMessages(currentConversationId, messages);
+    }
+  }, [messages, currentConversationId, isGuest]);
 
-  // Background token verification
+  // Background token verification (only for authenticated users)
   useEffect(() => {
+    if (isGuest) return;
     if (!token) {
       localStorage.removeItem("user");
       setUser(null);
@@ -188,26 +254,42 @@ function AppRoutes() {
         serverDownTimerRef.current = null;
       }
     };
-  }, [token]);
+  }, [token, isGuest]);
 
   useEffect(() => {
     if (!user) return;
-    loadConversations();
-    loadModels();
-    const savedId = localStorage.getItem("currentConversationId");
-    if (savedId) {
-      const savedMessages = localStorage.getItem(`messages_${savedId}`);
-      if (savedMessages) {
-        try {
-          setMessages(JSON.parse(savedMessages));
-        } catch {}
+    if (isGuest) {
+      setConversations(getGuestConversations());
+      loadModels();
+      const savedId = sessionStorage.getItem("guestCurrentConversationId");
+      if (savedId) {
+        const msgs = getGuestMessages(savedId);
+        setMessages(msgs);
+        setCurrentConversationId(savedId);
+        if (location.pathname === "/dashboard") return;
+        navigate(`/chat/${savedId}`, { replace: true });
+      } else {
+        if (location.pathname === "/dashboard") return;
+        navigate(`/chat`, { replace: true });
       }
-      setCurrentConversationId(savedId);
-      if (location.pathname === "/dashboard") return; // don't override dashboard
-      navigate(`/chat/${savedId}`, { replace: true });
     } else {
-      if (location.pathname === "/dashboard") return;
-      navigate(`/chat`, { replace: true });
+      loadConversations();
+      loadModels();
+      const savedId = localStorage.getItem("currentConversationId");
+      if (savedId) {
+        const savedMessages = localStorage.getItem(`messages_${savedId}`);
+        if (savedMessages) {
+          try {
+            setMessages(JSON.parse(savedMessages));
+          } catch {}
+        }
+        setCurrentConversationId(savedId);
+        if (location.pathname === "/dashboard") return;
+        navigate(`/chat/${savedId}`, { replace: true });
+      } else {
+        if (location.pathname === "/dashboard") return;
+        navigate(`/chat`, { replace: true });
+      }
     }
   }, [user]);
 
@@ -216,22 +298,35 @@ function AppRoutes() {
   }, [messages]);
 
   useEffect(() => {
-    if (currentConversationId)
-      localStorage.setItem("currentConversationId", currentConversationId);
-    else localStorage.removeItem("currentConversationId");
-  }, [currentConversationId]);
+    if (currentConversationId) {
+      if (isGuest)
+        sessionStorage.setItem(
+          "guestCurrentConversationId",
+          currentConversationId,
+        );
+      else localStorage.setItem("currentConversationId", currentConversationId);
+    } else {
+      sessionStorage.removeItem("guestCurrentConversationId");
+      localStorage.removeItem("currentConversationId");
+    }
+  }, [currentConversationId, isGuest]);
 
-  // Load stats automatically when on /dashboard
   useEffect(() => {
-    if (location.pathname === "/dashboard" && user && token) {
+    if (location.pathname === "/dashboard" && user && !isGuest && token) {
       loadStats();
     }
-  }, [location.pathname, user, token]);
+  }, [location.pathname, user, token, isGuest]);
 
   // ─── Functions ───────────────────────────
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    if (isGuest) {
+      sessionStorage.removeItem("isGuest");
+      sessionStorage.removeItem("guestConversations");
+      sessionStorage.removeItem("guestCurrentConversationId");
+    } else {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+    }
     localStorage.removeItem("currentConversationId");
     setToken(null);
     setUser(null);
@@ -240,6 +335,12 @@ function AppRoutes() {
     setMessages([]);
     setServerDown(false);
     navigate("/login");
+  };
+
+  const handleGuestLogin = () => {
+    sessionStorage.setItem("isGuest", "true");
+    setUser(GUEST_USER);
+    navigate("/chat");
   };
 
   const handleAuth = async (
@@ -296,6 +397,11 @@ function AppRoutes() {
   };
 
   const loadConversation = async (id: string) => {
+    if (isGuest) {
+      setMessages(getGuestMessages(id));
+      setCurrentConversationId(id);
+      return;
+    }
     if (!token) return;
     if (loadConversationAbortRef.current)
       loadConversationAbortRef.current.abort();
@@ -355,7 +461,7 @@ function AppRoutes() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || loading || !token) return;
+    if (!input.trim() || loading) return;
     if (editingMessageId) {
       const idx = messages.findIndex((m) => m.id === editingMessageId);
       if (idx !== -1) setMessages(messages.slice(0, idx));
@@ -371,28 +477,43 @@ function AppRoutes() {
     };
     setMessages((prev) => [...prev, userMsg]);
     const payload: any = { message: input, model: selectedModel };
-    if (currentConversationId) payload.conversationId = currentConversationId;
+    if (currentConversationId && !isGuest)
+      payload.conversationId = currentConversationId;
     abortControllerRef.current = new AbortController();
     try {
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const endpoint = isGuest
+        ? `${API_URL}/api/chat/guest`
+        : `${API_URL}/api/chat`;
+      const headers: any = { "Content-Type": "application/json" };
+      if (!isGuest) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: abortControllerRef.current.signal,
       });
       const data = await res.json();
       if (data.error) setError(data.error);
       else {
-        setMessages((prev) => [...prev, data.message]);
+        const assistantWithModel = { ...data.message, model: selectedModel };
+        setMessages((prev) => [...prev, assistantWithModel]);
         if (!currentConversationId) {
-          setCurrentConversationId(data.conversation.id);
-          navigate(`/chat/${data.conversation.id}`, { replace: true });
+          const newConvId = data.message?.id || generateUUID();
+          setCurrentConversationId(newConvId);
+          navigate(`/chat/${newConvId}`, { replace: true });
+          if (isGuest) {
+            const convs = getGuestConversations();
+            convs.unshift({
+              id: newConvId,
+              title: input.substring(0, 50) + (input.length > 50 ? "..." : ""),
+              updatedAt: Date.now(),
+            });
+            setGuestConversations(convs);
+            setConversations(convs);
+          }
         }
         setInput("");
-        loadConversations();
+        if (!isGuest) loadConversations();
       }
     } catch (err: any) {
       if (err.name !== "AbortError") setError("Failed to send message.");
@@ -401,6 +522,14 @@ function AppRoutes() {
       setLoading(false);
     }
   };
+
+  function generateUUID(): string {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
 
   const newConversation = () => {
     stopGenerating();
@@ -412,6 +541,15 @@ function AppRoutes() {
   };
 
   const deleteConversation = async (id: string) => {
+    if (isGuest) {
+      const convs = getGuestConversations().filter((c) => c.id !== id);
+      setGuestConversations(convs);
+      setConversations(convs);
+      sessionStorage.removeItem(`guestMessages_${id}`);
+      if (currentConversationId === id) newConversation();
+      setMenuOpenConvId(null);
+      return;
+    }
     if (!token) return;
     try {
       await fetch(`${API_URL}/api/conversations/${id}`, {
@@ -428,6 +566,16 @@ function AppRoutes() {
   };
 
   const renameConversation = async (id: string, newTitle: string) => {
+    if (isGuest) {
+      const convs = getGuestConversations().map((c) =>
+        c.id === id ? { ...c, title: newTitle } : c,
+      );
+      setGuestConversations(convs);
+      setConversations(convs);
+      setRenamingConvId(null);
+      setMenuOpenConvId(null);
+      return;
+    }
     if (!token || !newTitle.trim()) return;
     try {
       await fetch(`${API_URL}/api/conversations/${id}/rename`, {
@@ -476,11 +624,7 @@ function AppRoutes() {
           user ? (
             <Navigate to="/chat" replace />
           ) : (
-            <AuthPage
-              onAuth={(mode, username, password, setError) =>
-                handleAuth(mode, username, password, setError)
-              }
-            />
+            <AuthPage onAuth={handleAuth} onGuest={handleGuestLogin} />
           )
         }
       />
@@ -617,6 +761,59 @@ function AppRoutes() {
         element={
           !user ? (
             <Navigate to="/login" replace />
+          ) : isGuest ? (
+            <ChatPage
+              user={user}
+              conversations={conversations}
+              currentConversationId={null}
+              messages={[]}
+              input=""
+              setInput={() => {}}
+              loading={false}
+              error={null}
+              showDashboard={true}
+              stats={computeGuestStats()}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+              models={models}
+              modelDropdownOpen={modelDropdownOpen}
+              setModelDropdownOpen={setModelDropdownOpen}
+              modelDropdownRef={modelDropdownRef as any}
+              sidebarCollapsed={sidebarCollapsed}
+              setSidebarCollapsed={setSidebarCollapsed}
+              mobileSidebarOpen={mobileSidebarOpen}
+              setMobileSidebarOpen={setMobileSidebarOpen}
+              serverDown={serverDown}
+              renamingConvId={null}
+              setRenamingConvId={() => {}}
+              renameTitle=""
+              setRenameTitle={() => {}}
+              menuOpenConvId={null}
+              setMenuOpenConvId={() => {}}
+              menuRef={menuRef}
+              loadingConversationId={null}
+              copiedId={null}
+              editingMessageId={null}
+              textareaRef={textareaRef}
+              messagesEndRef={messagesEndRef}
+              onSelectConversation={(id) => {
+                loadConversation(id);
+                navigate(`/chat/${id}`);
+                setMobileSidebarOpen(false);
+              }}
+              onNewConversation={newConversation}
+              onDashboard={() => navigate("/dashboard")}
+              onLogout={logout}
+              onDeleteConversation={deleteConversation}
+              onRenameConversation={renameConversation}
+              onSend={() => {}}
+              onStop={() => {}}
+              onCopy={() => {}}
+              onEdit={() => {}}
+              onCancelEdit={() => {}}
+              onDismissError={() => {}}
+              onKeyDown={() => {}}
+            />
           ) : (
             <ChatPage
               user={user}
@@ -676,18 +873,20 @@ function AppRoutes() {
       <Route
         path="*"
         element={
-          user ? (
-            <Navigate
-              to={
-                localStorage.getItem("currentConversationId")
-                  ? `/chat/${localStorage.getItem("currentConversationId")}`
-                  : "/chat"
-              }
-              replace
-            />
-          ) : (
-            <Navigate to="/login" replace />
-          )
+          <Navigate
+            to={
+              user
+                ? isGuest
+                  ? sessionStorage.getItem("guestCurrentConversationId")
+                    ? `/chat/${sessionStorage.getItem("guestCurrentConversationId")}`
+                    : "/chat"
+                  : localStorage.getItem("currentConversationId")
+                    ? `/chat/${localStorage.getItem("currentConversationId")}`
+                    : "/chat"
+                : "/login"
+            }
+            replace
+          />
         }
       />
     </Routes>
