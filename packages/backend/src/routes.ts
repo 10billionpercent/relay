@@ -127,21 +127,36 @@ async function generateConversationTitle(
 export function createRoutes(db: IDatabaseWrapper, llmClient: LoggedLLMClient) {
   const app = new Hono();
 
+  app.onError((err, c) => {
+    console.error("Unhandled error:", err);
+    return c.json(
+      { error: "Internal server error" },
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } },
+    );
+  });
+
+  app.use(
+    "/*",
+    cors({
+      origin: (origin) => {
+        const allowed = [
+          "http://localhost:5173",
+          "http://localhost:3000",
+          "http://127.0.0.1:5173",
+          "https://relay-ai-chat.pages.dev",
+        ];
+        return allowed.includes(origin) ? origin : allowed[0];
+      },
+      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+    }),
+  );
+
   app.use("*", async (c, next) => {
     c.set("db", db);
     await next();
   });
 
-  // CORS middleware
-  app.use(
-    "/*",
-    cors({
-      origin: "*", // ← temporarily open for debugging
-      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization"],
-    }),
-  );
-  
   // Health check
   app.get("/api/health", (c) =>
     c.json({ status: "ok", timestamp: Date.now() }),
