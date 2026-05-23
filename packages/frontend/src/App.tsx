@@ -20,12 +20,25 @@ interface Model {
   model: string;
 }
 
+interface User {
+  id: string;
+  username: string;
+}
+
 const API_URL = "http://localhost:3001";
 
 function App() {
-  const [userName, setUserName] = useState<string | null>(null);
-  const [nameInput, setNameInput] = useState("");
+  // Auth state
+  const [token, setToken] = useState<string | null>(
+    localStorage.getItem("token"),
+  );
+  const [user, setUser] = useState<User | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
 
+  // App state
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
@@ -44,31 +57,103 @@ function App() {
       "Untitled"
     : "New Conversation";
 
+  // Verify token on mount
   useEffect(() => {
-    loadConversations();
-    loadModels();
-  }, []);
+    if (token) {
+      fetch(`${API_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.id) {
+            setUser({ id: data.id, username: data.username });
+          } else {
+            logout();
+          }
+        })
+        .catch(() => logout());
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (user) {
+      loadConversations();
+      loadModels();
+    }
+  }, [user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const logout = () => {
+    localStorage.removeItem("token");
+    setToken(null);
+    setUser(null);
+    setConversations([]);
+    setCurrentConversationId(null);
+    setMessages([]);
+  };
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    const endpoint =
+      authMode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+    try {
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: authUsername,
+          password: authPassword,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        // Smart error handling with auto‑switch
+        if (data.code === "USER_NOT_FOUND") {
+          // User tried to login but doesn't exist → switch to signup
+          setAuthError("No account found. Please sign up.");
+          setAuthMode("signup");
+        } else if (data.code === "USERNAME_TAKEN") {
+          // User tried to signup but username taken → switch to login
+          setAuthError("Username already taken. Please log in.");
+          setAuthMode("login");
+        } else {
+          setAuthError(data.error);
+        }
+      } else {
+        // Success
+        localStorage.setItem("token", data.token);
+        setToken(data.token);
+        setUser(data.user);
+        setAuthUsername("");
+        setAuthPassword("");
+      }
+    } catch (err) {
+      setAuthError("Network error. Please try again.");
+    }
+  };
+  
   const loadModels = async () => {
     try {
       const res = await fetch(`${API_URL}/api/models`);
       const data = await res.json();
       setModels(data);
-      if (data.length > 0) {
-        setSelectedModel(data[0].model);
-      }
+      if (data.length > 0) setSelectedModel(data[0].model);
     } catch (err) {
       console.error("Failed to load models:", err);
     }
   };
 
   const loadConversations = async () => {
+    if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/conversations`);
+      const res = await fetch(`${API_URL}/api/conversations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setConversations(data);
     } catch (err) {
@@ -77,8 +162,11 @@ function App() {
   };
 
   const loadConversation = async (id: string) => {
+    if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/conversations/${id}`);
+      const res = await fetch(`${API_URL}/api/conversations/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages);
@@ -90,7 +178,7 @@ function App() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || !token) return;
 
     setLoading(true);
     setError(null);
@@ -115,7 +203,10 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -148,8 +239,12 @@ function App() {
   };
 
   const deleteConversation = async (id: string) => {
+    if (!token) return;
     try {
-      await fetch(`${API_URL}/api/conversations/${id}`, { method: "DELETE" });
+      await fetch(`${API_URL}/api/conversations/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (currentConversationId === id) {
         newConversation();
       }
@@ -160,8 +255,11 @@ function App() {
   };
 
   const loadStats = async () => {
+    if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/stats`);
+      const res = await fetch(`${API_URL}/api/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setStats(data);
       setShowDashboard(true);
@@ -177,50 +275,61 @@ function App() {
     }
   };
 
-  const handleNameSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = nameInput.trim();
-    if (trimmed) {
-      setUserName(trimmed);
-      setNameInput("");
-    }
-  };
-
-  // --- Welcome Screen (with logo) ---
-  if (userName === null) {
+  // Auth screen
+  if (!user) {
     return (
-      <div className="welcome-screen">
-        <div className="welcome-card">
-          <div className="logo-title">
-            <img src="/relay.png" alt="Relay Logo" className="relay-logo-img" />
-            <h1>Relay</h1>
-          </div>
-          <p className="welcome-subtitle">Your AI assistant powered by Groq</p>
-          <form onSubmit={handleNameSubmit} className="name-form">
-            <label htmlFor="name-input">What's your name?</label>
+      <div className="auth-screen">
+        <div className="auth-card">
+          <img src="/relay.png" alt="Relay" className="auth-logo" />
+          <h2>{authMode === "login" ? "Welcome back" : "Create account"}</h2>
+          <form onSubmit={handleAuth}>
             <input
-              id="name-input"
               type="text"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              placeholder="Enter your name..."
-              autoFocus
+              placeholder="Username"
+              value={authUsername}
+              onChange={(e) => setAuthUsername(e.target.value)}
               required
-              className="name-input"
             />
-            <button type="submit" className="name-submit-btn">
-              Let's go →
+            <input
+              type="password"
+              placeholder="Password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              required
+            />
+            {authError && <p className="auth-error">{authError}</p>}
+            <button type="submit">
+              {authMode === "login" ? "Log in" : "Sign up"}
             </button>
           </form>
+          <p className="auth-switch">
+            {authMode === "login" ? (
+              <>
+                Don't have an account?{" "}
+                <button onClick={() => setAuthMode("signup")}>Sign up</button>
+              </>
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button onClick={() => setAuthMode("login")}>Log in</button>
+              </>
+            )}
+          </p>
         </div>
       </div>
     );
   }
 
-  // --- Main App ---
+  // Main app
   return (
     <div className="app">
       <div className="sidebar">
+        <div className="user-info">
+          <span>👤 {user.username}</span>
+          <button onClick={logout} className="logout-btn">
+            Logout
+          </button>
+        </div>
         <button onClick={newConversation} className="new-chat-btn">
           ✨ New Chat
         </button>

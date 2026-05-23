@@ -19,6 +19,7 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   status: "active" | "archived";
+  userId: string; // new
 }
 
 export interface InferenceLog {
@@ -72,4 +73,30 @@ export interface DashboardStats {
   };
   modelDistribution: Array<{ model: string; count: number }>;
   recentLogs: InferenceLog[];
+}
+
+export interface User {
+  id: string;
+  username: string;
+  password_hash: string; // was passwordHash
+  token: string | null;
+  created_at: number;
+}
+
+export interface SignupRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: {
+    id: string;
+    username: string;
+  };
 }
