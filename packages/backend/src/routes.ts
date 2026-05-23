@@ -215,6 +215,70 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
   app.use("/api/ingest/*", authMiddleware);
   app.use("/api/stats", authMiddleware);
 
+  // Auto-generate a conversation title
+  async function generateConversationTitle(
+    userMessage: string,
+    assistantMessage: string,
+  ): Promise<string> {
+    try {
+      const messages: Message[] = [
+        {
+          id: uuidv4(),
+          conversationId: "title-gen",
+          role: "system",
+          content:
+            'You are a title generator. Read the user\'s first message and the assistant\'s response. Produce a SHORT title (max 3 words) that captures the topic. Do NOT use the word "title". Do NOT use any punctuation or quotes. Examples: "Morning Greeting", "Anime Discussion", "Cooking Tips". Output ONLY the title.',
+          timestamp: Date.now(),
+        },
+        {
+          id: uuidv4(),
+          conversationId: "title-gen",
+          role: "user",
+          content: `User: ${userMessage}\nAssistant: ${assistantMessage}`,
+          timestamp: Date.now(),
+        },
+      ];
+
+      const { message } = await llmClient.chat(
+        messages,
+        "llama-3.1-8b-instant",
+      );
+
+      let raw = message.content.trim();
+      console.log("[Title] Raw LLM response:", raw);
+
+      // Remove markdown code fences, backticks, and common formatting
+      raw = raw
+        .replace(/^```[a-z]*\n?|```$/gi, "")
+        .replace(/`/g, "")
+        .replace(/["'“”‘’]/g, "")
+        .replace(/[.,\/#!$%\^&\*;:{}=_~()\-]/g, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+      // Take first 3 words
+      const words = raw.split(/\s+/);
+      const title = words.slice(0, 3).join(" ");
+
+      // If everything is empty, use fallback
+      if (!title) {
+        console.warn("[Title] Cleaned title empty, using fallback.");
+        return (
+          userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") ||
+          "Chat"
+        );
+      }
+
+      console.log("[Title] Final title:", title);
+      return title;
+    } catch (e) {
+      console.error("Title generation failed, using fallback:", e);
+      return (
+        userMessage.substring(0, 30).split(" ").slice(0, 3).join(" ") || "Chat"
+      );
+    }
+  }
+
   // Chat endpoint
   app.post("/api/chat", async (c) => {
     try {
@@ -241,9 +305,7 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         const id = uuidv4();
         conversation = {
           id,
-          title:
-            validated.message.substring(0, 50) +
-            (validated.message.length > 50 ? "..." : ""),
+          title: "New Chat",
           createdAt: Date.now(),
           updatedAt: Date.now(),
           status: "active",
@@ -350,6 +412,25 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
         Date.now(),
         conversation.id,
       );
+
+      // ---- Title generation (now awaited for new conversations) ----
+      if (!validated.conversationId) {
+        try {
+          console.log("[Title] Generating title for new conversation...");
+          const title = await generateConversationTitle(
+            validated.message,
+            assistantMsgWithModel.content,
+          );
+          db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(
+            title,
+            conversation.id,
+          );
+          conversation.title = title; // update the response object as well
+          console.log(`[Title] Conversation title set to: "${title}"`);
+        } catch (err) {
+          console.error("Failed to update title:", err);
+        }
+      }
 
       const response: ChatResponse = {
         message: assistantMsgWithModel,
@@ -509,11 +590,10 @@ export function createRoutes(db: DatabaseWrapper, llmClient: LoggedLLMClient) {
     }
   });
 
-  // Dashboard stats
   // Dashboard stats (per‑user)
   app.get("/api/stats", (c) => {
     try {
-      const user = c.get("user") as User; // from authMiddleware
+      const user = c.get("user") as User;
 
       const stats = {
         totalConversations: db
