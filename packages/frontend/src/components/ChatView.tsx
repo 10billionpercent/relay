@@ -1,4 +1,5 @@
 import React, { RefObject } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X, Pencil, Send, Square, Loader2 } from "lucide-react";
 import type { Message, Model } from "../types";
 import { MODEL_NAMES } from "../constants";
@@ -78,15 +79,26 @@ export default function ChatView({
             </p>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            msg={msg}
-            copiedId={copiedId}
-            onCopy={onCopy}
-            onEdit={onEdit}
-          />
-        ))}
+
+        <AnimatePresence initial={false}>
+          {messages.map((msg) => (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.2 } }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+            >
+              <MessageBubble
+                msg={msg}
+                copiedId={copiedId}
+                onCopy={onCopy}
+                onEdit={onEdit}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
         {loading && (
           <div className="flex justify-start">
             <div className="bg-[#24272c] px-4 py-3 rounded-2xl rounded-bl-sm">
