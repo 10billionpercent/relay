@@ -11,6 +11,7 @@ import type {
   LogBatchRequest,
   User,
   AuthResponse,
+  LLMResponse,
 } from "@relay/shared";
 import type { IDatabaseWrapper } from "./db-interface";
 import crypto from "crypto";
