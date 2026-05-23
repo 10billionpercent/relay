@@ -36,6 +36,9 @@ function App() {
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState("llama-3.1-8b-instant");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentConversationTitle = currentConversationId
+  ? conversations.find((c) => c.id === currentConversationId)?.title || "Untitled"
+  : "New Conversation";
 
   useEffect(() => {
     loadConversations();
@@ -138,7 +141,7 @@ function App() {
       setLoading(false);
     }
   };
-  
+
   const newConversation = () => {
     setCurrentConversationId(null);
     setMessages([]);
@@ -333,15 +336,7 @@ function App() {
         ) : (
           <>
             <div className="chat-header">
-              <h2>{currentConversationId ? "Chat" : "New Conversation"}</h2>
-              {currentConversationId && (
-                <button
-                  onClick={newConversation}
-                  className="new-conversation-btn"
-                >
-                  + New
-                </button>
-              )}
+              <h2>{currentConversationTitle}</h2>
             </div>
 
             <div className="messages-container">
