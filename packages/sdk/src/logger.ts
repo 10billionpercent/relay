@@ -6,7 +6,7 @@ export class LogBatcher {
   private ingestionEndpoint: string;
   private maxBatchSize: number;
   private maxRetries: number = 3;
-  private retryDelay: number = 1000; //meow
+  private retryDelay: number = 1000; //meowing
 
   constructor(
     ingestionEndpoint: string,
