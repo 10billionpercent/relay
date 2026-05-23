@@ -1,0 +1,24 @@
+{
+  "name": "relay-monorepo",
+  "private": true,
+  "config": {
+    "node_gyp_msvs_version": "2022"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd packages/backend && npm run dev",
+    "dev:frontend": "cd packages/frontend && npm run dev",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.11",
+    "concurrently": "^8.2.0"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.1"
+  }
+}
