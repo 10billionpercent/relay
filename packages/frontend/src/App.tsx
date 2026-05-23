@@ -88,6 +88,7 @@ function App() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null); // NEW ref for auto-resize
 
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -97,6 +98,27 @@ function App() {
     ? conversations.find((c) => c.id === currentConversationId)?.title ||
       "Untitled"
     : "New Conversation";
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Reset height to recalculate
+    textarea.style.height = "0px";
+    const newHeight = textarea.scrollHeight;
+
+    // Max height for ~8 rows (approx 8 * 24px per row + padding)
+    const maxHeight = 8 * 24 + 32; // ~224px
+
+    if (newHeight > maxHeight) {
+      textarea.style.height = `${maxHeight}px`;
+      textarea.style.overflowY = "auto";
+    } else {
+      textarea.style.height = `${newHeight}px`;
+      textarea.style.overflowY = "hidden";
+    }
+  }, [input]);
 
   // Close model dropdown when clicking outside
   useEffect(() => {
@@ -884,13 +906,18 @@ function App() {
                   {/* Textarea + send/stop row */}
                   <div className="flex items-end gap-2">
                     <textarea
+                      ref={textareaRef}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
                       placeholder={`Message ${MODEL_NAMES[selectedModel] || selectedModel}`}
-                      rows={2}
+                      rows={1}
                       disabled={loading}
                       className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-sm"
+                      style={{
+                        minHeight: "44px",
+                        maxHeight: "224px", // ~8 rows
+                      }}
                     />
                     {loading ? (
                       <button
