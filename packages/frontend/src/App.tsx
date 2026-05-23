@@ -67,13 +67,16 @@ function App() {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("token"),
   );
-  const [user, setUser] = useState<UserData | null>(null);
-  const [authLoading, setAuthLoading] = useState(!!token);
+  const [user, setUser] = useState<UserData | null>(() => {
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
+  });
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [serverDown, setServerDown] = useState(false);
+  const serverDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // App state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -175,46 +178,81 @@ function App() {
     }
   }, [messages, currentConversationId]);
 
-  // Verify token on mount with timeout
+  // Background token verification (no flash)
   useEffect(() => {
     if (!token) {
-      setAuthLoading(false);
+      localStorage.removeItem("user");
+      setUser(null);
       return;
     }
-    let didCancel = false;
+
+    // If we already have a user, don't set serverDown until a delay
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     const verify = async () => {
       try {
         const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
-        if (didCancel) return;
+
+        // Clear any pending delayed warning
+        if (serverDownTimerRef.current) {
+          clearTimeout(serverDownTimerRef.current);
+          serverDownTimerRef.current = null;
+        }
+
         if (res.status === 401) {
           localStorage.removeItem("token");
+          localStorage.removeItem("user");
           setToken(null);
           setUser(null);
           setServerDown(false);
         } else if (res.ok) {
           const data = await res.json();
           setUser({ id: data.id, username: data.username });
+          localStorage.setItem(
+            "user",
+            JSON.stringify({ id: data.id, username: data.username }),
+          );
           setServerDown(false);
         } else {
-          setServerDown(true);
+          // Server responded with an error – wait before showing warning
+          if (!serverDownTimerRef.current) {
+            serverDownTimerRef.current = setTimeout(() => {
+              setServerDown(true);
+            }, 1500);
+          }
         }
       } catch (err: any) {
-        if (err.name === "AbortError") console.warn("Auth check timed out");
-        setServerDown(true);
-      } finally {
-        if (!didCancel) setAuthLoading(false);
+        if (err.name === "AbortError") {
+          // Timeout – wait before showing warning
+          if (!serverDownTimerRef.current) {
+            serverDownTimerRef.current = setTimeout(() => {
+              setServerDown(true);
+            }, 1500);
+          }
+        } else {
+          // Network error – wait before showing warning
+          if (!serverDownTimerRef.current) {
+            serverDownTimerRef.current = setTimeout(() => {
+              setServerDown(true);
+            }, 1500);
+          }
+        }
       }
     };
+
     verify();
+
     return () => {
-      didCancel = true;
       clearTimeout(timeoutId);
       controller.abort();
+      if (serverDownTimerRef.current) {
+        clearTimeout(serverDownTimerRef.current);
+        serverDownTimerRef.current = null;
+      }
     };
   }, [token]);
 
@@ -250,6 +288,7 @@ function App() {
 
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
     localStorage.removeItem("currentConversationId");
     setToken(null);
     setUser(null);
@@ -286,6 +325,7 @@ function App() {
         }
       } else {
         localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
         setAuthUsername("");
@@ -489,9 +529,7 @@ function App() {
         },
         body: JSON.stringify({ title: newTitle.trim() }),
       });
-      if (res.ok) {
-        loadConversations();
-      }
+      if (res.ok) loadConversations();
     } catch (err) {
       console.error("Rename failed:", err);
     }
@@ -524,26 +562,12 @@ function App() {
     }
   };
 
-  // ---- Loading screen while checking auth ---
-  if (authLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#111315]">
-        <div
-          className="text-white text-lg animate-pulse"
-          style={{ fontFamily: "'Quicksand', sans-serif" }}
-        >
-          Verifying session…
-        </div>
-      </div>
-    );
-  }
-
-  // ---- Auth screen ----
+  // ---- Auth screen (no loading screen) ----
   if (!user) {
     return (
       <div
         className="min-h-screen flex items-center justify-center bg-[#111315] p-4"
-        style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: "500" }}
+        style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
       >
         <div className="bg-[#1a1d21] rounded-2xl p-6 sm:p-10 max-w-md w-full text-center shadow-lg">
           <img src="/relay.png" alt="Relay" className="w-16 mx-auto mb-4" />
@@ -615,7 +639,7 @@ function App() {
   return (
     <div
       className="h-screen flex bg-[#111315] text-white"
-      style={{ fontFamily: "'Quicksand', sans-serif", fontWeight: "500" }}
+      style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
     >
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
@@ -691,6 +715,7 @@ function App() {
           )}
         </div>
 
+        {/* Server down warning – only after 1.5s delay */}
         {serverDown && (
           <div className="px-3 py-2 text-xs text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 rounded-lg mx-3 mb-2">
             ⚠️ Server unreachable – using cached data
@@ -724,7 +749,6 @@ function App() {
             <div
               key={conv.id}
               onClick={() => {
-                // Only switch if not currently renaming this conversation
                 if (renamingConvId !== conv.id) {
                   loadConversation(conv.id);
                   setMobileSidebarOpen(false);
@@ -798,7 +822,6 @@ function App() {
                   >
                     <MoreHorizontal size={16} />
                   </button>
-
                   {menuOpenConvId === conv.id && (
                     <div className="absolute right-0 top-full mt-1 w-36 bg-[#1a1d21] border border-[#2a2d33] rounded-lg shadow-lg z-50 py-1">
                       <button
@@ -835,7 +858,7 @@ function App() {
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main content (unchanged) */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center h-16 px-4 border-b border-[#2a2d33] bg-[#1a1d21] lg:px-6">
           <button
