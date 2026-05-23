@@ -90,7 +90,9 @@ function App() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [models, setModels] = useState<Model[]>([]);
-  const [selectedModel, setSelectedModel] = useState("llama-3.1-8b-instant");
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem("selectedModel") || "llama-3.1-8b-instant";
+  });
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -127,6 +129,9 @@ function App() {
       "Untitled"
     : "New Conversation";
 
+  useEffect(() => {
+    localStorage.setItem("selectedModel", selectedModel);
+  }, [selectedModel]);
   // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -341,7 +346,10 @@ function App() {
       const res = await fetch(`${API_URL}/api/models`);
       const data = await res.json();
       setModels(data);
-      if (data.length > 0) setSelectedModel(data[0].model);
+      // Only set from API if no saved preference
+      if (data.length > 0 && !localStorage.getItem("selectedModel")) {
+        setSelectedModel(data[0].model);
+      }
     } catch (err) {
       console.error("Failed to load models:", err);
     }
@@ -1158,7 +1166,7 @@ function App() {
                         className="flex-shrink-0 p-3 bg-[#00cfff] text-[#111315] rounded-lg hover:bg-[#00b5e6] transition"
                         title="Stop generating"
                       >
-                        <Square size={16} fill="currentColor"/>
+                        <Square size={16} fill="currentColor" />
                       </button>
                     ) : (
                       <button
