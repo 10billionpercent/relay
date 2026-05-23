@@ -262,7 +262,7 @@ CREATE INDEX idx_conversations_updated   ON conversations(updated_at DESC);
 ### Install & run
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/10billionpercent/relay
 cd relay
 
 # Install all dependencies
