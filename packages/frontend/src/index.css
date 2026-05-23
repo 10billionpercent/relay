@@ -1,3 +1,71 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #00cfff #1a1d21; /* thumb = accent, track = bg */
+}
+
+/* Chrome / Edge / Safari */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #1a1d21;
+  border-radius: 8px; /* rounder track */
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #00cfff;
+  border-radius: 8px; /* rounder thumb */
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #00b5e6; /* accent‑hover */
+}
+
+/* Desktop: custom rounded scrollbar */
+@media (min-width: 768px) {
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #00cfff #1a1d21;
+  }
+
+  /* Chrome / Edge / Safari */
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #1a1d21;
+    border-radius: 8px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #00cfff;
+    border-radius: 8px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #00b5e6;
+  }
+}
+
+/* Mobile: hide scrollbar completely */
+@media (max-width: 1400px) {
+  /* Firefox */
+  * {
+    scrollbar-width: none;
+  }
+
+  /* Chrome / Edge / Safari */
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
