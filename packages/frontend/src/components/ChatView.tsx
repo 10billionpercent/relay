@@ -2,7 +2,7 @@ import React, { RefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X, Pencil, Send, Square, Loader2 } from "lucide-react";
 import type { Message, Model } from "../types";
-import { MODEL_NAMES } from "../constants";
+import { MODELS } from "../constants";
 import ModelSelector from "./ModelSelector";
 import MessageBubble from "./MessageBubble";
 
@@ -74,7 +74,7 @@ export default function ChatView({
             <p className="mt-2">
               Current model:{" "}
               <strong className="text-[#00cfff]" title={selectedModel}>
-                {MODEL_NAMES[selectedModel] || selectedModel}
+                {MODELS[selectedModel].name || selectedModel}
               </strong>
             </p>
           </div>
@@ -159,7 +159,7 @@ export default function ChatView({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={`Message ${MODEL_NAMES[selectedModel] || selectedModel}`}
+              placeholder={`Message ${MODELS[selectedModel].name || selectedModel}`}
               rows={1}
               disabled={loading}
               className="flex-1 bg-[#24272c] border border-[#2a2d33] rounded-lg p-3 text-white resize-none focus:outline-none focus:border-[#00cfff] text-s"

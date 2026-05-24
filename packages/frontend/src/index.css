@@ -74,3 +74,32 @@ body {
     display: none;
   }
 }
+
+/* ── Force visible scrollbar on model dropdown (overrides mobile hide) ── */
+.model-dropdown-scroll {
+  /* Firefox */
+  scrollbar-width: thin !important;
+  scrollbar-color: #00cfff #1a1d21 !important;
+}
+
+@media (max-width: 1400px) {
+  .model-dropdown-scroll {
+    scrollbar-width: thin !important;
+  }
+  .model-dropdown-scroll::-webkit-scrollbar {
+    display: block !important;
+    width: 8px;
+    height: 8px;
+  }
+  .model-dropdown-scroll::-webkit-scrollbar-track {
+    background: #1a1d21;
+    border-radius: 8px;
+  }
+  .model-dropdown-scroll::-webkit-scrollbar-thumb {
+    background: #00cfff;
+    border-radius: 8px;
+  }
+  .model-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+    background: #00b5e6;
+  }
+}

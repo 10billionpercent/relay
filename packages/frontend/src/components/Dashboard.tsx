@@ -1,6 +1,6 @@
 import React from "react";
 import { BarChart3, RefreshCw, CheckCircle, XCircle } from "lucide-react";
-import { MODEL_NAMES } from "../constants";
+import { MODELS } from "../constants";
 
 interface DashboardProps {
   stats: any;
@@ -84,7 +84,7 @@ export default function Dashboard({
                   className="w-32 sm:w-40 text-sm text-gray-300 truncate"
                   title={item.model}
                 >
-                  {MODEL_NAMES[item.model] || item.model}
+                  {MODELS[item.model].name || item.model}
                 </span>
                 <div className="flex-1 bg-[#24272c] rounded-full h-2">
                   <div
@@ -128,7 +128,7 @@ export default function Dashboard({
                         {new Date(log.timestamp).toLocaleTimeString()}
                       </td>
                       <td className="px-4 py-2" title={log.model}>
-                        {MODEL_NAMES[log.model] || log.model}
+                        {MODELS[log.model].name || log.model}
                       </td>
                       <td className="px-4 py-2">{log.latency_ms}ms</td>
                       <td className="px-4 py-2">{log.total_tokens}</td>
