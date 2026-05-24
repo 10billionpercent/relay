@@ -1,5 +1,6 @@
 import React from "react";
 import { Menu, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import Sidebar from "../components/Sidebar";
 import Dashboard from "../components/Dashboard";
 import ChatView from "../components/ChatView";
@@ -60,6 +61,11 @@ export default function ChatPage(props: ChatPageProps) {
         ?.title || "Untitled"
     : "New Conversation";
 
+  // Dynamic key that forces exit/enter animations when switching views
+  const contentKey = props.showDashboard
+    ? "dashboard"
+    : (props.currentConversationId ?? "new-chat");
+
   return (
     <div
       className="h-dvh flex bg-[#111315] text-white"
@@ -72,6 +78,7 @@ export default function ChatPage(props: ChatPageProps) {
         />
       )}
 
+      {/* ── Sidebar – always present, never animated ── */}
       <Sidebar
         user={props.user}
         conversations={props.conversations}
@@ -97,7 +104,9 @@ export default function ChatPage(props: ChatPageProps) {
         onRenameConversation={props.onRenameConversation}
       />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* ── Main area (header + animated content) ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header – static, outside animation */}
         <div className="flex items-center h-16 px-4 border-b border-[#2a2d33] bg-[#1a1d21] lg:px-6">
           <button
             onClick={() => props.setMobileSidebarOpen(true)}
@@ -115,42 +124,54 @@ export default function ChatPage(props: ChatPageProps) {
           )}
         </div>
 
-        <div className="flex-1 flex flex-col min-h-0">
-          {props.showDashboard && props.stats ? (
-            <Dashboard
-              stats={props.stats}
-              onRefresh={props.onDashboard}
-              isGuest={props.user?.id === "guest"}
-            />
-          ) : (
-            <ChatView
-              setSelectedModel={props.setSelectedModel}
-              messages={props.messages}
-              user={props.user}
-              selectedModel={props.selectedModel}
-              input={props.input}
-              setInput={props.setInput}
-              loading={props.loading}
-              error={props.error}
-              editingMessageId={props.editingMessageId}
-              onCancelEdit={props.onCancelEdit}
-              copiedId={props.copiedId}
-              textareaRef={props.textareaRef}
-              messagesEndRef={props.messagesEndRef}
-              models={props.models}
-              modelDropdownOpen={props.modelDropdownOpen}
-              setModelDropdownOpen={props.setModelDropdownOpen}
-              modelDropdownRef={props.modelDropdownRef as any}
-              onKeyDown={props.onKeyDown}
-              onSend={props.onSend}
-              onStop={props.onStop}
-              onCopy={props.onCopy}
-              onEdit={props.onEdit}
-              title={currentConversationTitle}
-              loadingConversationId={props.loadingConversationId}
-              onDismissError={props.onDismissError}
-            />
-          )}
+        {/* ── Animated content area ── */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={contentKey}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex flex-col min-h-0"
+            >
+              {props.showDashboard && props.stats ? (
+                <Dashboard
+                  stats={props.stats}
+                  onRefresh={props.onDashboard}
+                  isGuest={props.user?.id === "guest"}
+                />
+              ) : (
+                <ChatView
+                  setSelectedModel={props.setSelectedModel}
+                  messages={props.messages}
+                  user={props.user}
+                  selectedModel={props.selectedModel}
+                  input={props.input}
+                  setInput={props.setInput}
+                  loading={props.loading}
+                  error={props.error}
+                  editingMessageId={props.editingMessageId}
+                  onCancelEdit={props.onCancelEdit}
+                  copiedId={props.copiedId}
+                  textareaRef={props.textareaRef}
+                  messagesEndRef={props.messagesEndRef}
+                  models={props.models}
+                  modelDropdownOpen={props.modelDropdownOpen}
+                  setModelDropdownOpen={props.setModelDropdownOpen}
+                  modelDropdownRef={props.modelDropdownRef as any}
+                  onKeyDown={props.onKeyDown}
+                  onSend={props.onSend}
+                  onStop={props.onStop}
+                  onCopy={props.onCopy}
+                  onEdit={props.onEdit}
+                  title={currentConversationTitle}
+                  loadingConversationId={props.loadingConversationId}
+                  onDismissError={props.onDismissError}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </div>
