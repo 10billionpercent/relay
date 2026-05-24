@@ -24,7 +24,7 @@ export default function AuthScreen({
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-[#111315] p-4"
-      style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
+      style={{ fontFamily: "'Radio Canada', sans-serif", fontWeight: "500" }}
     >
       <div className="bg-[#1a1d21] rounded-2xl p-6 sm:p-10 max-w-md w-full text-center shadow-lg">
         <img src="/relay.png" alt="Relay" className="w-16 mx-auto mb-4" />

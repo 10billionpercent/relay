@@ -44,7 +44,7 @@ export default function AuthPage({ onAuth, onGuest }: AuthPageProps) {
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-[#111315] p-4"
-      style={{ fontFamily: "'Cabin', sans-serif", fontWeight: "500" }}
+      style={{ fontFamily: "'Radio Canada', sans-serif", fontWeight: "500" }}
     >
       <motion.div
         variants={cardVariants}
